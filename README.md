@@ -5,13 +5,12 @@ Query should be written in the form:
 
 `select col1, col2, .... from table where condition`
 
-<b>examples</b>:<br>
+<b>Examples</b>:<br>
 `  select * from contacts`<br>
 `  select name, phonenumber from contacts`
 
 <b>Configuration:</b><br>
 The MySQL database configuration should be added as follow in configuration.yaml:
-
 `mysql_query:`<br>
 `  mysql_host: <mysqldb host ip address>`<br>
 `  mysql_username: <mysqldb username>`<br>
