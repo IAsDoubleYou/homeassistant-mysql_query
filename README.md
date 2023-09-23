@@ -15,7 +15,7 @@ Configuration:
 The MySQL database configuration should be added as follow in configuration.yaml:
 
 `mysql_query:`
-  mysql_host: 192.168.123.122
-  mysql_username: contact
-  mysql_password: contact
-  mysql_db: contact
+`  mysql_host: <mysqldb host ip address>`
+`  mysql_username: <mysqldb username>`
+`  mysql_password: <mysqldb password>`
+`  mysql_db: <mysqldb databasename>`
