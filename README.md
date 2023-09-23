@@ -9,3 +9,13 @@ examples:
   select * from contacts
 
   select name, phonenumber from contacts
+
+
+Configuration:
+The MySQL database configuration should be added as follow in configuration.yaml:
+
+`mysql_query:`
+  mysql_host: 192.168.123.122
+  mysql_username: contact
+  mysql_password: contact
+  mysql_db: contact
