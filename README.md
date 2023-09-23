@@ -14,7 +14,7 @@ examples:
 Configuration:
 The MySQL database configuration should be added as follow in configuration.yaml:
 
-`mysql_query:`
+`mysql_query:`/n
 `  mysql_host: <mysqldb host ip address>`
 `  mysql_username: <mysqldb username>`
 `  mysql_password: <mysqldb password>`
