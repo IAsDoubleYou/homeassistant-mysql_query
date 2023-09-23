@@ -1,19 +1,14 @@
+"""Support for mysql_query notification."""
+
+from __future__ import annotations
+
 import mysql.connector
-import json
-from homeassistant.const import CONF_HOST, CONF_PORT, CONF_USERNAME, CONF_PASSWORD
 import logging
 import voluptuous as vol
 import homeassistant.helpers.config_validation as cv
-from homeassistant.core import (
-    CALLBACK_TYPE,
-    HomeAssistant,
-    ServiceCall,
-    ServiceResponse,
-    SupportsResponse,
-    callback,
-)
+from homeassistant.core import HomeAssistant, SupportsResponse
 from homeassistant.helpers.typing import ConfigType
-from typing import Any, Final, cast, final
+from typing import Final
 
 DOMAIN = "mysql_query"
 
