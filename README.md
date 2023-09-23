@@ -5,7 +5,7 @@ Query should be written in the form:
 
 `select col1, col2, .... from table where condition`
 
-examples:
+<b>examples</b>:<br>
 `  select * from contacts`<br>
 `  select name, phonenumber from contacts`
 
