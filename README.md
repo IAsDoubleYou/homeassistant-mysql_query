@@ -9,7 +9,7 @@ Query should be written in the form:
 `  select * from contacts`<br>
 `  select name, phonenumber from contacts`
 
-<b>Configuration:</b>
+<b>Configuration:</b><br>
 The MySQL database configuration should be added as follow in configuration.yaml:
 
 `mysql_query:`<br>
