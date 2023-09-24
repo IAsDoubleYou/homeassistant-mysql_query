@@ -1,5 +1,5 @@
 # Service ID
-mysql_query:
+query:
   # Different fields that your service accepts
   fields:
     # Key of the field
