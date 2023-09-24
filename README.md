@@ -1,7 +1,19 @@
+[![HACS Custom][hacs_shield]][hacs]
 [![GitHub Latest Release][releases_shield]][latest_release]
+[![GitHub All Releases][downloads_total_shield]][releases]
+[![Community Forum][community_forum_shield]][community_forum]
+
+[hacs_shield]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge
+[hacs]: https://github.com/hacs/integration
 
 [latest_release]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/latest
 [releases_shield]: https://img.shields.io/github/release/IAsDoubleYou/homeassistant-mysql_query.svg?style=for-the-badge
+
+[releases]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/
+[downloads_total_shield]: https://img.shields.io/github/downloads/IAsDoubleYou/homeassistant-mysql_query/total?style=for-the-badge
+
+[community_forum_shield]: https://img.shields.io/static/v1.svg?label=%20&message=Forum&style=for-the-badge&color=41bdf5&logo=HomeAssistant&logoColor=white
+[community_forum]: https://community.home-assistant.io/t/mysql-command/539839/13
 
 # MySql Query
 A Home Assistant custom component that provides a ResponseData service to execute a query against a MySQL database. The result values become available as an iterable data structure.
@@ -18,6 +30,9 @@ select col1, col2, .... from table where condition
 ```
 
 ## Installation
+
+### Using [HACS](https://hacs.xyz/)
+This component can be installed using HACS. Please follow directions [here](https://hacs.xyz/docs/faq/custom_repositories/) and use [https://github.com/IAsDoubleYou/homeassistant-mysql_query](https://github.com/IAsDoubleYou/homeassistant-mysql_query) as the repository URL.
 
 ### Manual
 
