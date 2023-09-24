@@ -1,0 +1,11 @@
+# Service ID
+mysql_query:
+  # Different fields that your service accepts
+  fields:
+    # Key of the field
+    query:
+      # Whether or not field is required (default = false)
+      required: true
+      example: "select * from contacts where phonenumber=1234567890"
+      # The default field value
+      default: "select 1 from dual"
