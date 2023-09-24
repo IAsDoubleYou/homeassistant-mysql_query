@@ -5,6 +5,7 @@
     "documentation": "https://github.com/IAsDoubleYou/homeassistant-mysql_query",
     "issue_tracker": "https://github.com/IAsDoubleYou/homeassistant-mysql_query/issues",
     "requirements": ["mysql-connector-python"],
-    "iot_class": "local_push",
+    "integration_type": "service",
+    "iot_class": "calculated",
     "version": "0.1.0"
 }
