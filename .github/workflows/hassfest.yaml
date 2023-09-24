@@ -1,11 +1,12 @@
 name: Test hassfest
 
 on:
-  pull_request:
-    branches: ["master"]
   push:
-    branches: ["master"]
-
+  pull_request:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+  
 jobs:
   hassfest:
     runs-on: ubuntu-latest
