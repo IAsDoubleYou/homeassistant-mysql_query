@@ -1,3 +1,6 @@
+[latest_release]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/latest
+[releases_shield]: https://img.shields.io/github/release/IAsDoubleYou/homeassistant-mysql_query.svg?style=for-the-badge
+
 # homeassistant-mysql_query
 A Home Assistant custom component that provides a ResponseData service to execute a query against a MySQL database. The result values become available as an iterable data structure.
 
