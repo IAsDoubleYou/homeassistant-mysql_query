@@ -1,3 +1,5 @@
+[![GitHub Latest Release][releases_shield]][latest_release]
+
 [latest_release]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/latest
 [releases_shield]: https://img.shields.io/github/release/IAsDoubleYou/homeassistant-mysql_query.svg?style=for-the-badge
 
