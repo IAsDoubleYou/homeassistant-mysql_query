@@ -7,8 +7,9 @@
 A Home Assistant custom component that provides a ResponseData service to execute a query against a MySQL database. The result values become available as an iterable data structure.
 
 The query should be written in the form:
-
-`select col1, col2, .... from table where condition`
+```text
+select col1, col2, .... from table where condition
+```
 
 <b>Examples:</b><br>
 ```text
