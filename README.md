@@ -48,7 +48,7 @@ This component can be installed using HACS. Please follow directions [here](http
 ## Configuration
 The MySQL database configuration should be added as follow in configuration.yaml:
 ```text
-mysql_query:<br>
+mysql_query:
   mysql_host: <mysqldb host ip address
   mysql_username: <mysqldb username
   mysql_password: <mysqldb password
