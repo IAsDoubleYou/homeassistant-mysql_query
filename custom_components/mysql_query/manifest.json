@@ -1,6 +1,7 @@
 {
     "domain": "mysql_query",
     "name": "MySQL Query Service",
+    "integration_type": "hub",
     "codeowners": ["@IAsDoubleYou"],
     "documentation": "https://github.com/IAsDoubleYou/homeassistant-mysql_query",
     "issue_tracker": "https://github.com/IAsDoubleYou/homeassistant-mysql_query/issues",
