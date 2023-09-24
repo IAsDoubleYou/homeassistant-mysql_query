@@ -24,7 +24,7 @@ The query should be written in the form:
 7. Apply the <i>configuration</i> as described below
 8. Restart Home Assistant once more
 
-## Configuration:
+## Configuration
 The MySQL database configuration should be added as follow in configuration.yaml:
 ```text
 mysql_query:<br>
@@ -33,10 +33,10 @@ mysql_query:<br>
   mysql_password: <mysqldb password
   mysql_db: <mysqldb databasename
 ```
-## Usage:
+## Usage
 The service should be called by passing the query parameter.
 
-### Request:
+### Request
 <b>Examples:</b><br>
 ```text
 service: mysql_query.query
@@ -48,7 +48,7 @@ data:
   query: select * from contact where phonenumber like '0%'
 ```
 
-### Response:
+### Response
 If the query achieves a result, this will be returned as a collection.
 <b>Example response in YAML format:</b><br>
 ```text
@@ -61,7 +61,7 @@ result:
     language: en
 ```
 
-### Usage from automation:
+### Usage from automation
 <b>An example of how to use this service and it's response from within an automation:</b><br>
 ```text
 alias: mysql_query test
