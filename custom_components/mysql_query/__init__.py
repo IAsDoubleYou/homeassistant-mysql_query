@@ -1,4 +1,4 @@
-"""Support for mysql_query notification."""
+"""Support for mysql_query service."""
 
 from __future__ import annotations
 
