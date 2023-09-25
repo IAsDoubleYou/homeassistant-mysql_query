@@ -16,7 +16,7 @@
 [community_forum]: https://community.home-assistant.io/t/mysql-command/539839/13
 
 # MySql Query
-A Home Assistant custom component that provides a ResponseData service to execute a query against a MySQL database. The result values become available as an iterable data structure.
+A Home Assistant custom component that provides a (ResponseData) service to execute a query against a MySQL database. The result values become available as an iterable data structure.
 
 The query should be written in the form:
 ```text
