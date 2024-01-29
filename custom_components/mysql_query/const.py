@@ -5,6 +5,7 @@ CONF_MYSQL_DB = "mysql_db"
 CONF_MYSQL_TIMEOUT = "mysql_timeout"
 
 QUERY = "query"
+DB4QUERY = "db4query"
 
 # Defaults
 DEFAULT_MYSQL_TIMEOUT = 10

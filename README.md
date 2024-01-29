@@ -57,7 +57,7 @@ mysql_query:
   mysql_db: <mysqldb databasename
 ```
 ## Usage
-The service should be called by passing the query parameter.
+The service should be called by passing the query parameter and optionally the db4query parameter to support multiple databases.
 
 ### Request
 <b>Examples:</b><br>
@@ -65,6 +65,7 @@ The service should be called by passing the query parameter.
 service: mysql_query.query
 data:
   query: select * from contact where phonenumber='1234567890'
+  db4query: privatedb
 
 service: mysql_query.query
 data:
@@ -112,3 +113,17 @@ action:
       target: youraccount@gmail.com
 mode: single
 ```
+## Multiple databases
+The database configured with the mysql_db configuration parameter in configuration.yaml acts as the default database for each query.
+However,the default database can be overrided for each query by providing <b>db4query</b> alongside the query parameter.
+
+Example:
+```text
+service: mysql_query.query
+data:
+  query: select "hello world" from dual
+  db4query: contact
+```
+The query from this example will be executed against the contact database, although the default database specified by the mysql_db configuration parameter may be a complete different database.
+
+
