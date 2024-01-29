@@ -28,6 +28,8 @@ select col1, col2, .... from table where condition
   select * from contacts
   select name, phonenumber from contacts
 ```
+## Requirements
+This service requires at least HomeAssistant version <b>2023.7</b> where Responding services were introduced. 
 
 ## Installation
 
