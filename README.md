@@ -115,7 +115,7 @@ mode: single
 ```
 ## Multiple databases
 The database configured with the mysql_db configuration parameter in configuration.yaml acts as the default database for each query.
-However,the default database can be overrided for each query by providing <b>db4query</b> alongside the query parameter.
+However,the default database can be overridden for each query by providing <b>db4query</b> alongside the query parameter.
 
 Example:
 ```text
