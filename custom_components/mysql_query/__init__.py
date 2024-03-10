@@ -19,6 +19,7 @@ CONF_MYSQL_HOST = "mysql_host"
 CONF_MYSQL_USERNAME = "mysql_username"
 CONF_MYSQL_PASSWORD = "mysql_password"
 CONF_MYSQL_DB = "mysql_db"
+CONF_MYSQL_PORT = "mysql_port"
 CONF_MYSQL_TIMEOUT = "mysql_timeout"
 QUERY = "query"
 DB4QUERY = "db4query"
@@ -27,16 +28,22 @@ _LOGGER = logging.getLogger(__name__)
 
 # Defaults
 DEFAULT_MYSQL_TIMEOUT = 10
+DEFAULT_MYSQL_PORT = 3306
 
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.Schema(
             {
                 vol.Required(CONF_MYSQL_HOST): cv.string,
+                vol.Optional(
+                    CONF_MYSQL_PORT, default=DEFAULT_MYSQL_PORT
+                ): vol.Coerce(int),
                 vol.Required(CONF_MYSQL_USERNAME): cv.string,
                 vol.Required(CONF_MYSQL_PASSWORD): cv.string,
                 vol.Required(CONF_MYSQL_DB): cv.string,
-                vol.Optional(CONF_MYSQL_TIMEOUT, default=DEFAULT_MYSQL_TIMEOUT): vol.Coerce(int),
+                vol.Optional(
+                    CONF_MYSQL_TIMEOUT, default=DEFAULT_MYSQL_TIMEOUT
+                ): vol.Coerce(int)
             }
         ),
     },
@@ -46,7 +53,6 @@ CONFIG_SCHEMA = vol.Schema(
 SERVICE_QUERY: Final = "query"
 SERVICE_DB4QUERY: Final = "db4query"
 
-SERVICE_QUERY: Final = "query"
 SERVICE_QUERY_SCHEMA: Final = vol.All(
     cv.has_at_least_one_key(QUERY), cv.has_at_most_one_key(QUERY)
 )
@@ -55,6 +61,7 @@ SERVICE_QUERY_SCHEMA: Final = vol.All(
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     conf = config[DOMAIN]
     mysql_host = conf.get(CONF_MYSQL_HOST)
+    mysql_port = conf.get(CONF_MYSQL_PORT, DEFAULT_MYSQL_PORT)
     mysql_username = conf.get(CONF_MYSQL_USERNAME)
     mysql_password = conf.get(CONF_MYSQL_PASSWORD)
     mysql_db = conf.get(CONF_MYSQL_DB)
@@ -62,6 +69,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     try:
         _cnx = mysql.connector.connect(
             host=mysql_host,
+            port=mysql_port,
             username=mysql_username,
             password=mysql_password,
             db=mysql_db,
@@ -82,10 +90,15 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         if _query.lower().startswith("select"):
             _db4query = call.data.get(ATTR_DB4QUERY, None)
 
-            if (_db4query is not None) and (_db4query != "") and (_db4query.lower() != mysql_db.lower()):
+            if (
+                (_db4query is not None)
+                and (_db4query != "")
+                and (_db4query.lower() != mysql_db.lower())
+            ):
                 try:
                     _cnx4qry = mysql.connector.connect(
                         host=mysql_host,
+                        port=mysql_port,
                         username=mysql_username,
                         password=mysql_password,
                         db=_db4query,
@@ -97,12 +110,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             else:
                 _cnx4qry = _cnx
 
-
             if _cnx4qry is not None:
                 _cnx4qry.reconnect()
-                _cursor = _cnx4qry.cursor(
-                    buffered=True
-                )
+                _cursor = _cnx4qry.cursor(buffered=True)
                 _cursor.execute(_query)
                 _cols = _cursor.description
                 _rows = _cursor.fetchall()
