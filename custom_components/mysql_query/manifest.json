@@ -1,11 +1,15 @@
 {
     "domain": "mysql_query",
     "name": "MySQL Query Service",
-    "codeowners": ["@IAsDoubleYou"],
+    "codeowners": [
+        "@IAsDoubleYou"
+    ],
     "documentation": "https://github.com/IAsDoubleYou/homeassistant-mysql_query",
     "integration_type": "hub",
     "iot_class": "local_push",
     "issue_tracker": "https://github.com/IAsDoubleYou/homeassistant-mysql_query/issues",
-    "requirements": ["mysql-connector-python"],
-    "version": "1.1.0"
+    "requirements": [
+        "mysql-connector-python"
+    ],
+    "version": "1.2.0"
 }
