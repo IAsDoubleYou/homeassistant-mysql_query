@@ -52,10 +52,12 @@ The MySQL database configuration should be added as follow in configuration.yaml
 ```text
 mysql_query:
   mysql_host: <mysqldb host ip address
+  mysql_port: <mysql port
   mysql_username: <mysqldb username
   mysql_password: <mysqldb password
   mysql_db: <mysqldb databasename
 ```
+The port number (mysql_port) is optional and defaults to 3306
 ## Usage
 The service should be called by passing the query parameter and optionally the db4query parameter to support multiple databases.
 
