@@ -87,6 +87,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
         _result = []
 
+        if _query.lower().startswith("select") or _query.lower().startswith("with"):
             _db4query = call.data.get(ATTR_DB4QUERY, None)
 
             if (
