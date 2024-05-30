@@ -72,6 +72,12 @@ data:
 service: mysql_query.query
 data:
   query: select * from contact where phonenumber like '0%'
+
+service: mysql_query.query
+data:
+  query: |
+    with cte_query as (select 'Hello World' from dual)
+    select * from cte_query
 ```
 
 ### Response
