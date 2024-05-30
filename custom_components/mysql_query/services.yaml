@@ -1,1 +1,11 @@
-# Service ID
+query:
+  description: Execute MySQL query
+  fields:
+    db4query:
+      description: Name of the database to be used for this query. Should already be configured in configuration.yaml file.
+      example: privatedb
+      required: false
+    query:
+      description: MySQL query
+      example: "select * from contact where phonenumber='1234567890'"
+      required: true
