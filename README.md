@@ -13,7 +13,7 @@
 [downloads_total_shield]: https://img.shields.io/github/downloads/IAsDoubleYou/homeassistant-mysql_query/total?style=for-the-badge
 
 [community_forum_shield]: https://img.shields.io/static/v1.svg?label=%20&message=Forum&style=for-the-badge&color=41bdf5&logo=HomeAssistant&logoColor=white
-[community_forum]: https://community.home-assistant.io/t/mysql-command/539839/13
+[community_forum]: https://community.home-assistant.io/t/mysql-query/734346
 
 # MySql Query
 A Home Assistant custom component that provides a (ResponseData) service to execute a query against a MySQL database. The result values become available as an iterable data structure.
