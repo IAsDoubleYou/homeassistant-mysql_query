@@ -35,15 +35,15 @@ CONFIG_SCHEMA = vol.Schema(
         DOMAIN: vol.Schema(
             {
                 vol.Required(CONF_MYSQL_HOST): cv.string,
-                vol.Optional(
-                    CONF_MYSQL_PORT, default=DEFAULT_MYSQL_PORT
-                ): vol.Coerce(int),
+                vol.Optional(CONF_MYSQL_PORT, default=DEFAULT_MYSQL_PORT): vol.Coerce(
+                    int
+                ),
                 vol.Required(CONF_MYSQL_USERNAME): cv.string,
                 vol.Required(CONF_MYSQL_PASSWORD): cv.string,
                 vol.Required(CONF_MYSQL_DB): cv.string,
                 vol.Optional(
                     CONF_MYSQL_TIMEOUT, default=DEFAULT_MYSQL_TIMEOUT
-                ): vol.Coerce(int)
+                ): vol.Coerce(int),
             }
         ),
     },
@@ -87,7 +87,6 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
         _result = []
 
-        if _query.lower().startswith("select"):
             _db4query = call.data.get(ATTR_DB4QUERY, None)
 
             if (
@@ -124,7 +123,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                             _values[_col[0]] = _row[_c]
                         _result.append(_values)
         else:
-            _LOGGER.error("Query does not start with SELECT : [ " + _query + " ]")
+            _LOGGER.error(
+                "Query does not start with one of the allowed keywords 'SELECT' or 'WITH' : [ "
+                + _query
+                + " ]"
+            )
 
         return {"result": _result}
 
