@@ -16,9 +16,9 @@
 [community_forum]: https://community.home-assistant.io/t/mysql-query/734346
 
 # MySQL Query
-A Home Assistant custom component that provides a (ResponseData) service to execute a query against a MySQL database. The result values become available as an iterable data structure.
+A Home Assistant custom component that provides a (ResponseData) *service* to execute a query against a MySQL database. The result values become available as an iterable data structure.
 
-Please check [ha_mysql](https://github.com/IAsDoubleYou/ha_mysql) component for a mysql sensor component.
+Please check [ha_mysql](https://github.com/IAsDoubleYou/ha_mysql) component for a mysql *sensor* component.
 
 ## MySQL Query usage
 The query should be written in the form:
