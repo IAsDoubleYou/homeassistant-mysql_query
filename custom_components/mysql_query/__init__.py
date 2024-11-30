@@ -67,6 +67,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     mysql_db = conf.get(CONF_MYSQL_DB)
     mysql_timeout = conf.get(CONF_MYSQL_TIMEOUT, DEFAULT_MYSQL_TIMEOUT)
     try:
+        _LOGGER.info(f"Establishing connection with database {mysql_db} at {mysql_host}:{mysql_port}")
         _cnx = mysql.connector.connect(
             host=mysql_host,
             port=mysql_port,
@@ -75,27 +76,31 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             db=mysql_db,
             connection_timeout=mysql_timeout,
         )
-    except:
-        _LOGGER.error("Could not connect to mysql server")
+    except Exception as e:
+           # Log the rror with the full stack trace
+        _LOGGER.error("Could not connect to mysql server: %s", str(e), exc_info=True)
         _cnx = None
 
+    _LOGGER.info(f"Connection established with database {mysql_db} at {mysql_host}:{mysql_port}")
     hass.data["mysql_connection"] = _cnx
 
     def handle_query(call):
         """Handle the service call."""
         _query = call.data.get(ATTR_QUERY)
+        _LOGGER.debug(f"received query: {_query}")
 
         _result = []
 
         if _query.lower().startswith("select") or _query.lower().startswith("with"):
             _db4query = call.data.get(ATTR_DB4QUERY, None)
-
             if (
                 (_db4query is not None)
                 and (_db4query != "")
                 and (_db4query.lower() != mysql_db.lower())
             ):
+                _LOGGER.debug(f"Provided database for this query: {_db4query}")
                 try:
+                    _LOGGER.debug(f"Establishing connection with database {_db4query} at {mysql_host}:{mysql_port}")
                     _cnx4qry = mysql.connector.connect(
                         host=mysql_host,
                         port=mysql_port,
@@ -104,32 +109,40 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                         db=_db4query,
                         connection_timeout=mysql_timeout,
                     )
-                except:
-                    _LOGGER.error("Could not connect to mysql server")
+                except Exception as e:
+           # Log the rror with the full stack trace
+                    _LOGGER.error("Could not connect to mysql server: %s", str(e), exc_info=True)
                     _cnx4qry = None
             else:
                 _cnx4qry = _cnx
 
             if _cnx4qry is not None:
+                _LOGGER.debug(f"Reconnecting to databaseserver")
                 _cnx4qry.reconnect()
                 _cursor = _cnx4qry.cursor(buffered=True)
+                _LOGGER.debug(f"Executing query: {_query}")
                 _cursor.execute(_query)
                 _cols = _cursor.description
+                _LOGGER.debug(f"Fetching all records")
                 _rows = _cursor.fetchall()
 
                 if _rows is not None:
+                    _i = 0
+                    _LOGGER.debug(f"Found {len(_rows)} rows")
                     for _r, _row in enumerate(_rows):
+                        _i+1
+                        _LOGGER.debug(f"Fetching values")
                         _values = {}
                         for _c, _col in enumerate(_cols):
                             _values[_col[0]] = _row[_c]
                         _result.append(_values)
+                        _LOGGER.debug(f"{_i}: _values: {_values}")
         else:
             _LOGGER.error(
-                "Query does not start with one of the allowed keywords 'SELECT' or 'WITH' : [ "
-                + _query
-                + " ]"
+                f"Query does not start with one of the allowed keywords 'SELECT' or 'WITH' : [{_query}]"
             )
 
+        _LOGGER.debug(f"Returning result: {_result}")
         return {"result": _result}
 
     hass.services.async_register(
@@ -140,6 +153,6 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         supports_response=SupportsResponse.ONLY,
     )
 
-    _LOGGER.info("Service is now set up")
+    _LOGGER.info("Service mysql_query is now set up")
 
     return True
