@@ -21,6 +21,8 @@ CONF_MYSQL_PASSWORD = "mysql_password"
 CONF_MYSQL_DB = "mysql_db"
 CONF_MYSQL_PORT = "mysql_port"
 CONF_MYSQL_TIMEOUT = "mysql_timeout"
+CONF_MYSQL_CHARSET = "mysql_charset"
+CONF_MYSQL_COLLATION ="mysql_collation"
 QUERY = "query"
 DB4QUERY = "db4query"
 
@@ -41,9 +43,9 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Required(CONF_MYSQL_USERNAME): cv.string,
                 vol.Required(CONF_MYSQL_PASSWORD): cv.string,
                 vol.Required(CONF_MYSQL_DB): cv.string,
-                vol.Optional(
-                    CONF_MYSQL_TIMEOUT, default=DEFAULT_MYSQL_TIMEOUT
-                ): vol.Coerce(int),
+                vol.Optional(CONF_MYSQL_TIMEOUT, default=DEFAULT_MYSQL_TIMEOUT): vol.Coerce(int),
+                vol.Optional(CONF_MYSQL_CHARSET): cv.string,
+                vol.Optional(CONF_MYSQL_COLLATION): cv.string,
             }
         ),
     },
@@ -66,16 +68,28 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     mysql_password = conf.get(CONF_MYSQL_PASSWORD)
     mysql_db = conf.get(CONF_MYSQL_DB)
     mysql_timeout = conf.get(CONF_MYSQL_TIMEOUT, DEFAULT_MYSQL_TIMEOUT)
+    mysql_collation = conf.get(CONF_MYSQL_COLLATION, None)
+    mysql_charset = conf.get(CONF_MYSQL_CHARSET, None)
+
+    # Standard required connection arguments
+    connect_kwargs = {
+    "host": mysql_host,
+    "user": mysql_username,
+    "password": mysql_password,
+    "database": mysql_db,
+    "port": str(mysql_port)
+    }
+
+    # Additional, optional connection arguments
+    if mysql_charset is not None:
+        connect_kwargs["charset"] = mysql_charset
+    if mysql_collation is not None:
+        connect_kwargs["collation"] = mysql_collation
+
     try:
         _LOGGER.info(f"Establishing connection with database {mysql_db} at {mysql_host}:{mysql_port}")
-        _cnx = mysql.connector.connect(
-            host=mysql_host,
-            port=mysql_port,
-            username=mysql_username,
-            password=mysql_password,
-            db=mysql_db,
-            connection_timeout=mysql_timeout,
-        )
+        _cnx = mysql.connector.connect(**connect_kwargs)
+
     except Exception as e:
            # Log the rror with the full stack trace
         _LOGGER.error("Could not connect to mysql server: %s", str(e), exc_info=True)
@@ -99,18 +113,16 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 and (_db4query.lower() != mysql_db.lower())
             ):
                 _LOGGER.debug(f"Provided database for this query: {_db4query}")
+
                 try:
+                    # Override the default database with the one provided for this query
+                    connect_kwargs["database"] = _db4query
+
                     _LOGGER.debug(f"Establishing connection with database {_db4query} at {mysql_host}:{mysql_port}")
-                    _cnx4qry = mysql.connector.connect(
-                        host=mysql_host,
-                        port=mysql_port,
-                        username=mysql_username,
-                        password=mysql_password,
-                        db=_db4query,
-                        connection_timeout=mysql_timeout,
-                    )
+                    _cnx4qry = mysql.connector.connect(**connect_kwargs)
+
                 except Exception as e:
-           # Log the rror with the full stack trace
+                    # Log the rror with the full stack trace
                     _LOGGER.error("Could not connect to mysql server: %s", str(e), exc_info=True)
                     _cnx4qry = None
             else:
