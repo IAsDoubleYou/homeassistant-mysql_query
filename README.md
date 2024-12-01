@@ -59,8 +59,17 @@ mysql_query:
   mysql_username: <mysqldb username>
   mysql_password: <mysqldb password>
   mysql_db: <mysqldb databasename>
+  mysql_charset: <characterset>
+  mysql_collation: <collation>
 ```
 The port number (mysql_port) is optional and defaults to 3306
+The characterset (mysql_charset) and the collation (mysql_collation) are also optional and can be used to explicitly specify one or both settings.
+<b>Example characterset and collation configuration:</b>
+```
+  mysql_charset: utf8mb4
+  mysql_collation: utf8mb4_unicode_ci
+```
+
 ## Usage
 The service should be called by passing the query parameter and optionally the db4query parameter to support multiple databases.
 
