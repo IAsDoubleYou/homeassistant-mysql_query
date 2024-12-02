@@ -98,6 +98,19 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     _LOGGER.info(f"Connection established with database {mysql_db} at {mysql_host}:{mysql_port}")
     hass.data["mysql_connection"] = _cnx
 
+
+    def replace_blob_with_description(value):
+        """
+        Check if the value is a large object and if so return a description instead of the value.
+        """
+        if isinstance(value, (bytes, bytearray)):  # Detect BLOBs
+            return "BLOB"
+        elif isinstance(value, memoryview):  # Other large objects
+            return "LARGE OBJECT"
+        else:
+            return value  # Don't adjust other, normal values
+
+
     def handle_query(call):
         """Handle the service call."""
         _query = call.data.get(ATTR_QUERY)
@@ -146,7 +159,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                         _LOGGER.debug(f"Fetching values")
                         _values = {}
                         for _c, _col in enumerate(_cols):
-                            _values[_col[0]] = _row[_c]
+                            _values[_col[0]] = replace_blob_with_description(_row[_c])
                         _result.append(_values)
                         _LOGGER.debug(f"{_i}: _values: {_values}")
         else:
