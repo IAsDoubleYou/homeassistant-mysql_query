@@ -1,1 +1,20 @@
-# Service ID
+query:
+  name: MySQL Query
+  description: Queries a MySQL Database
+  fields:
+    query:
+      name: Query
+      description: The SELECT or WITH query to execute
+      example: 'SELECT column1, column2 FROM database WHERE column3=value'
+      required: true
+      selector:
+        text:
+          type: text
+    db4query:
+      name: Query Database
+      description: An alternate database to query.
+      example: 'database_name'
+      required: false
+      selector:
+        text:
+          type: text
