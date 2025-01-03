@@ -6,6 +6,7 @@ import mysql.connector
 import logging
 import voluptuous as vol
 import homeassistant.helpers.config_validation as cv
+from functools import partial
 from homeassistant.core import HomeAssistant, SupportsResponse
 from homeassistant.helpers.typing import ConfigType
 from typing import Final
@@ -88,7 +89,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     try:
         _LOGGER.info(f"Establishing connection with database {mysql_db} at {mysql_host}:{mysql_port}")
-        _cnx = mysql.connector.connect(**connect_kwargs)
+        _cnx = await hass.async_add_executor_job(partial(mysql.connector.connect, **connect_kwargs))
 
     except Exception as e:
            # Log the rror with the full stack trace
