@@ -9,6 +9,7 @@ import homeassistant.helpers.config_validation as cv
 from functools import partial
 from homeassistant.core import HomeAssistant, SupportsResponse
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.exceptions import HomeAssistantError
 from typing import Final
 
 DOMAIN = "mysql_query"
@@ -95,6 +96,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
            # Log the rror with the full stack trace
         _LOGGER.error("Could not connect to mysql server: %s", str(e), exc_info=True)
         _cnx = None
+        raise HomeAssistantError(f"Could not connect to mysql server: {str(e)}")
 
     _LOGGER.info(f"Connection established with database {mysql_db} at {mysql_host}:{mysql_port}")
     hass.data["mysql_connection"] = _cnx
@@ -119,7 +121,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
         _result = []
 
-        if _query.lower().startswith("select") or _query.lower().startswith("with"):
+        if _query != None and (_query.lower().startswith("select") or _query.lower().startswith("with")):
             _db4query = call.data.get(ATTR_DB4QUERY, None)
             if (
                 (_db4query is not None)
@@ -139,18 +141,22 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                     # Log the rror with the full stack trace
                     _LOGGER.error("Could not connect to mysql server: %s", str(e), exc_info=True)
                     _cnx4qry = None
+                    raise HomeAssistantError(f"Could not connect to mysql server: {str(e)}")
             else:
                 _cnx4qry = _cnx
 
             if _cnx4qry is not None:
-                _LOGGER.debug(f"Reconnecting to databaseserver")
-                _cnx4qry.reconnect()
-                _cursor = _cnx4qry.cursor(buffered=True)
-                _LOGGER.debug(f"Executing query: {_query}")
-                _cursor.execute(_query)
-                _cols = _cursor.description
-                _LOGGER.debug(f"Fetching all records")
-                _rows = _cursor.fetchall()
+                try:
+                    _LOGGER.debug(f"Reconnecting to databaseserver")
+                    _cnx4qry.reconnect()
+                    _cursor = _cnx4qry.cursor(buffered=True)
+                    _LOGGER.debug(f"Executing query: {_query}")
+                    _cursor.execute(_query)
+                    _cols = _cursor.description
+                    _LOGGER.debug(f"Fetching all records")
+                    _rows = _cursor.fetchall()
+                except Exception as e:
+                    raise HomeAssistantError(f"{str(e)}")
 
                 if _rows is not None:
                     _i = 0
@@ -165,8 +171,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                         _LOGGER.debug(f"{_i}: _values: {_values}")
         else:
             _LOGGER.error(
-                f"Query does not start with one of the allowed keywords 'SELECT' or 'WITH' : [{_query}]"
+                f"Query does not start with one of the allowed keywords 'SELECT' or 'WITH'. Passed query: [{_query}]"
             )
+            raise HomeAssistantError(f"Query does not start with one of the allowed keywords 'SELECT' or 'WITH'. Passed query: [{_query}]")
 
         _LOGGER.debug(f"Returning result: {_result}")
         return {"result": _result}
