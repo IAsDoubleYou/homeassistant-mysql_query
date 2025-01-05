@@ -1,10 +1,10 @@
 query:
   name: MySQL Query
-  description: Queries a MySQL Database
+  description: Sends a SQL Query to a MySQL Database
   fields:
     query:
       name: Query
-      description: The SELECT or WITH query to execute
+      description: The SQL query or command to execute
       example: 'SELECT column1, column2 FROM database WHERE column3=value'
       required: true
       selector:

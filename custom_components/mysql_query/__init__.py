@@ -24,7 +24,8 @@ CONF_MYSQL_DB = "mysql_db"
 CONF_MYSQL_PORT = "mysql_port"
 CONF_MYSQL_TIMEOUT = "mysql_timeout"
 CONF_MYSQL_CHARSET = "mysql_charset"
-CONF_MYSQL_COLLATION ="mysql_collation"
+CONF_MYSQL_COLLATION = "mysql_collation"
+CONF_AUTOCOMMIT = "mysql_autocommit"
 QUERY = "query"
 DB4QUERY = "db4query"
 
@@ -33,6 +34,7 @@ _LOGGER = logging.getLogger(__name__)
 # Defaults
 DEFAULT_MYSQL_TIMEOUT = 10
 DEFAULT_MYSQL_PORT = 3306
+DEFAULT_MYSQL_AUTOCOMMIT = True
 
 CONFIG_SCHEMA = vol.Schema(
     {
@@ -48,6 +50,7 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Optional(CONF_MYSQL_TIMEOUT, default=DEFAULT_MYSQL_TIMEOUT): vol.Coerce(int),
                 vol.Optional(CONF_MYSQL_CHARSET): cv.string,
                 vol.Optional(CONF_MYSQL_COLLATION): cv.string,
+                vol.Optional(CONF_AUTOCOMMIT, default=DEFAULT_MYSQL_AUTOCOMMIT): cv.boolean,
             }
         ),
     },
@@ -72,14 +75,16 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     mysql_timeout = conf.get(CONF_MYSQL_TIMEOUT, DEFAULT_MYSQL_TIMEOUT)
     mysql_collation = conf.get(CONF_MYSQL_COLLATION, None)
     mysql_charset = conf.get(CONF_MYSQL_CHARSET, None)
+    mysql_autocommit = conf.get(CONF_AUTOCOMMIT, DEFAULT_MYSQL_AUTOCOMMIT)
 
     # Standard required connection arguments
     connect_kwargs = {
-    "host": mysql_host,
-    "user": mysql_username,
-    "password": mysql_password,
-    "database": mysql_db,
-    "port": str(mysql_port)
+        "host": mysql_host,
+        "user": mysql_username,
+        "password": mysql_password,
+        "database": mysql_db,
+        "port": str(mysql_port),
+        "autocommit": mysql_autocommit,
     }
 
     # Additional, optional connection arguments
@@ -89,18 +94,21 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         connect_kwargs["collation"] = mysql_collation
 
     try:
-        _LOGGER.info(f"Establishing connection with database {mysql_db} at {mysql_host}:{mysql_port}")
+        _LOGGER.info(f"Establishing connection with database {
+                     mysql_db} at {mysql_host}:{mysql_port}")
         _cnx = await hass.async_add_executor_job(partial(mysql.connector.connect, **connect_kwargs))
 
     except Exception as e:
-           # Log the rror with the full stack trace
-        _LOGGER.error("Could not connect to mysql server: %s", str(e), exc_info=True)
+        # Log the rror with the full stack trace
+        _LOGGER.error("Could not connect to mysql server: %s",
+                      str(e), exc_info=True)
         _cnx = None
-        raise HomeAssistantError(f"Could not connect to mysql server: {str(e)}")
+        raise HomeAssistantError(
+            f"Could not connect to mysql server: {str(e)}")
 
-    _LOGGER.info(f"Connection established with database {mysql_db} at {mysql_host}:{mysql_port}")
+    _LOGGER.info(f"Connection established with database {
+                 mysql_db} at {mysql_host}:{mysql_port}")
     hass.data["mysql_connection"] = _cnx
-
 
     def replace_blob_with_description(value):
         """
@@ -113,7 +121,6 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         else:
             return value  # Don't adjust other, normal values
 
-
     def handle_query(call):
         """Handle the service call."""
         _query = call.data.get(ATTR_QUERY)
@@ -121,7 +128,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
         _result = []
 
-        if _query != None and (_query.lower().startswith("select") or _query.lower().startswith("with")):
+        if _query != None:
             _db4query = call.data.get(ATTR_DB4QUERY, None)
             if (
                 (_db4query is not None)
@@ -134,27 +141,34 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                     # Override the default database with the one provided for this query
                     connect_kwargs["database"] = _db4query
 
-                    _LOGGER.debug(f"Establishing connection with database {_db4query} at {mysql_host}:{mysql_port}")
+                    _LOGGER.debug(f"Establishing connection with database {
+                                  _db4query} at {mysql_host}:{mysql_port}")
                     _cnx4qry = mysql.connector.connect(**connect_kwargs)
 
                 except Exception as e:
                     # Log the rror with the full stack trace
-                    _LOGGER.error("Could not connect to mysql server: %s", str(e), exc_info=True)
+                    _LOGGER.error(
+                        "Could not connect to mysql server: %s", str(e), exc_info=True)
                     _cnx4qry = None
-                    raise HomeAssistantError(f"Could not connect to mysql server: {str(e)}")
+                    raise HomeAssistantError(
+                        f"Could not connect to mysql server: {str(e)}")
             else:
                 _cnx4qry = _cnx
 
             if _cnx4qry is not None:
                 try:
-                    _LOGGER.debug(f"Reconnecting to databaseserver")
-                    _cnx4qry.reconnect()
+                    _cnx4qry.ping(reconnect=True)
                     _cursor = _cnx4qry.cursor(buffered=True)
                     _LOGGER.debug(f"Executing query: {_query}")
                     _cursor.execute(_query)
-                    _cols = _cursor.description
-                    _LOGGER.debug(f"Fetching all records")
-                    _rows = _cursor.fetchall()
+
+                    if _cursor.with_rows:
+                        _cols = _cursor.description
+                        _LOGGER.debug(f"Fetching all records")
+                        _rows = _cursor.fetchall()
+                    else:
+                        _rows = None
+
                 except Exception as e:
                     raise HomeAssistantError(f"{str(e)}")
 
@@ -166,14 +180,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                         _LOGGER.debug(f"Fetching values")
                         _values = {}
                         for _c, _col in enumerate(_cols):
-                            _values[_col[0]] = replace_blob_with_description(_row[_c])
+                            _values[_col[0]] = replace_blob_with_description(
+                                _row[_c])
                         _result.append(_values)
                         _LOGGER.debug(f"{_i}: _values: {_values}")
         else:
-            _LOGGER.error(
-                f"Query does not start with one of the allowed keywords 'SELECT' or 'WITH'. Passed query: [{_query}]"
-            )
-            raise HomeAssistantError(f"Query does not start with one of the allowed keywords 'SELECT' or 'WITH'. Passed query: [{_query}]")
+            _LOGGER.error("No query provided")
+            raise HomeAssistantError("No query provided")
 
         _LOGGER.debug(f"Returning result: {_result}")
         return {"result": _result}
