@@ -3,6 +3,7 @@ name: Validate with hassfest
 on:
   push:
   pull_request:
+  workflow_dispatch:  # Voeg deze regel toe voor de handmatige knop
   schedule:
     - cron: "0 0 * * *"
 
