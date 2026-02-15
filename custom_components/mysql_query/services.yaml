@@ -1,11 +1,32 @@
 query:
   name: MySQL Query
-  description: Sends a SQL Query to a MySQL Database
+  description: Sends a SQL Query to a MySQL Database (Legacy response format)
   fields:
     query:
       name: Query
       description: The SQL query or command to execute
       example: 'SELECT column1, column2 FROM database WHERE column3=value'
+      required: true
+      selector:
+        text:
+          type: text
+    db4query:
+      name: Query Database
+      description: An alternate database to query.
+      example: 'database_name'
+      required: false
+      selector:
+        text:
+          type: text
+
+execute:
+  name: MySQL Execute
+  description: Executes a SQL command and returns a structured response with metadata
+  fields:
+    query:
+      name: Query
+      description: The SQL query or command to execute
+      example: 'INSERT INTO table (col) VALUES (val)'
       required: true
       selector:
         text:

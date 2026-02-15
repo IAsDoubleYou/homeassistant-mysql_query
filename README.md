@@ -5,15 +5,15 @@
 [![GitHub All Releases][downloads_total_shield]][releases]
 [![Community Forum][community_forum_shield]][community_forum]
 
-A Home Assistant custom component that provides a *ResponseData service* to execute MySQL database queries. The results are available as an iterable data structure.
+A Home Assistant custom component that provides *Responding services* to execute MySQL database queries. The results are available as an iterable data structure.
 
 ## Key Features
 
-- Support for all SQL query types (since V1.4.0)
-- SELECT and WITH statements for data retrieval
-- INSERT, UPDATE, and DELETE statements for data manipulation
-- Multiple database support
-- Full integration with Home Assistant automations
+- **Two Service Modes**: Choose between a simple result list (`query`) or an extended metadata response (`execute`).
+- Support for all SQL query types (SELECT, INSERT, UPDATE, DELETE, etc.).
+- Multiple database support per query.
+- Full integration with Home Assistant automations and scripts.
+- Support for Service Response Data (introduced in HA 2023.7).
 
 ⚠️ **WARNING**: Exercise caution with destructive statements like UPDATE, DELETE, or DROP. The developer takes no responsibility for any data loss.
 
@@ -32,110 +32,107 @@ A Home Assistant custom component that provides a *ResponseData service* to exec
 ### Option 2: Manual Installation
 
 1. Navigate to your Home Assistant configuration directory (where `configuration.yaml` is located)
-2. Create a `custom_components` directory if it doesn't exist
-3. Create a new directory called `mysql_query` in `custom_components`
-4. Download all files from the `custom_components/mysql_query/` directory of this repository
-5. Place the downloaded files in the new directory
-6. Restart Home Assistant
-7. Add the configuration (see below)
-8. Restart Home Assistant again
+2. Create a `custom_components/mysql_query` directory.
+3. Download all files from this repository and place them in that directory.
+4. Restart Home Assistant, add the configuration, and restart again.
 
 ## Configuration
 
-Add the following configuration to your `configuration.yaml`:
+Add the following to your `configuration.yaml`:
 
 ```yaml
 mysql_query:
-  mysql_host: <mysqldb host ip address>  # Required
-  mysql_username: <mysqldb username>      # Required
-  mysql_password: <mysqldb password>      # Required
-  mysql_db: <mysqldb databasename>        # Required
-  mysql_port: <mysql port>                # Optional, defaults to 3306
-  mysql_autocommit: <true|false>          # Optional, defaults to true
-  mysql_charset: <characterset>           # Optional
-  mysql_collation: <collation>            # Optional
+  mysql_host: <mysqldb host ip address>
+  mysql_username: <mysqldb username>
+  mysql_password: <mysqldb password>
+  mysql_db: <mysqldb databasename>
+  mysql_port: 3306                         # Optional, defaults to 3306
+  mysql_autocommit: true                  # Optional, defaults to true
+  mysql_charset: utf8mb4                  # Optional
+  mysql_collation: utf8mb4_unicode_ci     # Optional
 ```
 
-### Character Set and Collation
+---
 
-Optionally, you can configure a specific character set and collation:
+## Services
 
-```yaml
-mysql_charset: utf8mb4
-mysql_collation: utf8mb4_unicode_ci
-```
+This component provides two services. Both require a `response_variable` to capture the output.
 
-### Autocommit
+### 1. Service: `mysql_query.query` (Legacy/Simple)
+Ideal for quick data retrieval where you only need the list of results.
 
-- `mysql_autocommit: true` (default): Each statement is committed immediately
-- `mysql_autocommit: false`: Transactions must be explicitly committed or rolled back using COMMIT or ROLLBACK statements
-
-## Usage
-
-### Basic Query Service
-
-```yaml
-service: mysql_query.query
-data:
-  query: "SELECT * FROM contacts WHERE phonenumber='1234567890'"
-```
-
-### Query with Alternative Database
-
-```yaml
-service: mysql_query.query
-data:
-  query: "SELECT * FROM contacts"
-  db4query: alternative_db
-```
-
-### Response Format
-
-The service returns results in YAML format:
-
+**Response Format:**
 ```yaml
 result:
-  - phonenumber: "0111111111"
-    announcement: "Announcement for phonenumber 0111111111"
-    language: "en"
-  - phonenumber: "0222222222"
-    announcement: "Announcement for phonenumber 0222222222"
-    language: "en"
+  - column1: "value1"
+    column2: "value2"
 ```
 
-### Automation Example
+### 2. Service: `mysql_query.execute` (Advanced/Recommended)
+Returns an extended response including metadata, timing, and detailed error information.
 
+**Response Format:**
 ```yaml
-alias: mysql_query test
-description: "Example of MySQL Query in automation"
-trigger: []
-condition: []
+succeeded: true            # Boolean: True if execution was successful
+execution_time_ms: 12.5    # Float: Time taken in milliseconds
+statement: "SELECT..."     # String: The actual executed SQL statement
+results: []                # List: The result set (list of dictionaries)
+rows_affected: 0           # Integer: Number of rows changed
+generated_id: null         # Integer: Last inserted ID (if applicable)
+column_names: []           # List: List of column names
+error:
+  message: null            # String: Human-readable error message
+  errno: null              # Integer: MySQL error number
+  sqlstate: null           # String: SQL state code
+```
+
+---
+
+## Automation Examples
+
+### Example: Using `mysql_query.query` (Simple loop)
+```yaml
+alias: Notify Contact List
 action:
-  - variables:
-      response: null
   - service: mysql_query.query
     data:
-      query: "SELECT * FROM contacts"
+      query: "SELECT name, phonenumber FROM contacts"
     response_variable: response
-  - service: notify.your_gmail_com
+  - service: notify.persistent_notification
     data:
-      message: |-
-        Response from MySQL Query Service:
+      message: >
+        Contacts found:
         {% for item in response.result %}
-            {{ item.phonenumber }}
-            {{ item.announcement }}
-            {{ item.language }}
+          {{ item.name }}: {{ item.phonenumber }}
         {% endfor %}
-      title: "Test of MySQL Query Service"
-      target: youraccount@gmail.com
-mode: single
+```
+
+### Example: Using `mysql_query.execute` (With Error Handling)
+```yaml
+alias: Secure Database Insert
+action:
+  - service: mysql_query.execute
+    data:
+      query: "INSERT INTO logs (message) VALUES ('HA Triggered')"
+    response_variable: db_result
+  - if:
+      - condition: template
+        value_template: "{{ not db_result.succeeded }}"
+    then:
+      - service: notify.admin
+        data:
+          title: "Database Error"
+          message: "Failed to log! Error: {{ db_result.error.message }} ({{ db_result.error.errno }})"
+    else:
+      - service: notify.persistent_notification
+        data:
+          message: "Success! New ID: {{ db_result.generated_id }}"
 ```
 
 ## Related Projects
 
-Also check out:
-- [HA MySQL](https://github.com/IAsDoubleYou/ha_mysql) component for a MySQL *sensor* component.
-- [coinbase_crypto_monitor](https://github.com/IAsDoubleYou/coinbase_crypto_monitor) component for a coinbase monitor sensor component.
+- [HA MySQL](https://github.com/IAsDoubleYou/ha_mysql) - MySQL sensor component.
+- [coinbase_crypto_monitor](https://github.com/IAsDoubleYou/coinbase_crypto_monitor) - Coinbase monitor sensor.
 
 [hacs_shield]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge
 [hacs]: https://github.com/hacs/integration
