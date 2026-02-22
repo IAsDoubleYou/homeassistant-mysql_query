@@ -50,8 +50,10 @@ A Home Assistant custom component that provides *Responding services* to execute
     - **Port**: Default is 3306.
     - **Username/Password**: Database credentials.
     - **Database**: The default database for this connection.
-    - **Connect Timeout**: Default is 10 seconds.
-    - **Autocommit**: Checkbox (Default: True).
+    - **Connect Timeout**: Seconds to wait (Default: 10).
+    - **Charset**: (Optional) Specify the character set (e.g., ```utf8mb4```).
+    - **Collation**: (Optional) Specify the collation (e.g., ```utf8mb4_unicode_ci```).
+    - **Autocommit**: Checkbox to toggle autocommit (Default: True).
 
 ### Multi-Instance & Default Configuration
 This integration supports **multiple database connections**. 
@@ -71,6 +73,7 @@ mysql_query:
   mysql_password: your_password
   mysql_db: homeassistant
   mysql_port: 3306
+  mysql_timeout: 10
 ```
 
 ---
@@ -97,6 +100,7 @@ Returns a detailed response including metadata, timing, and execution details.
 succeeded: true            # Boolean: True if execution was successful
 execution_time_ms: 12.5    # Float: Time taken in milliseconds
 database: "active_db"      # String: The database used for this query
+user: "ha_user"            # String: The database user that executed the query
 statement: "SELECT..."     # String: The actual executed SQL statement
 result: []                 # List: The result set (list of dictionaries)
 rows_affected: 0           # Integer: Number of rows changed
