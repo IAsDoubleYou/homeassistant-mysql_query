@@ -9,9 +9,10 @@ A Home Assistant custom component that provides *Responding services* to execute
 
 ## Key Features
 
-- **Two Service Modes**: Choose between a simple result list (`query`) or an extended metadata response (`execute`).
+- **UI Configuration**: Modern setup and management through the Home Assistant Integrations page (Config Flow).
+- **Two Service Modes**: Choose between a simple result list (```query```) or an extended metadata response (```execute```).
 - Support for all SQL query types (SELECT, INSERT, UPDATE, DELETE, etc.).
-- Multiple database support per query.
+- **Multiple database support**: Configure via UI and override per query using ```db4query```.
 - Full integration with Home Assistant automations and scripts.
 - Support for Service Response Data (introduced in HA 2023.7).
 
@@ -26,19 +27,27 @@ A Home Assistant custom component that provides *Responding services* to execute
 ### Option 1: Using HACS (recommended)
 
 1. Open HACS in your Home Assistant installation
-2. Add this repository as a custom repository: `https://github.com/IAsDoubleYou/homeassistant-mysql_query`
+2. Add this repository as a custom repository: ```https://github.com/IAsDoubleYou/homeassistant-mysql_query```
 3. Search for "MySQL Query" in HACS and install
 
 ### Option 2: Manual Installation
 
-1. Navigate to your Home Assistant configuration directory (where `configuration.yaml` is located)
-2. Create a `custom_components/mysql_query` directory.
+1. Navigate to your Home Assistant configuration directory
+2. Create a ```custom_components/mysql_query``` directory.
 3. Download all files from this repository and place them in that directory.
-4. Restart Home Assistant, add the configuration, and restart again.
+4. Restart Home Assistant.
 
 ## Configuration
 
-Add the following to your `configuration.yaml`:
+### Via UI (Recommended)
+1. Navigate to **Settings** > **Devices & Services**.
+2. Click **Add Integration** and search for "MySQL Query Service".
+3. Enter your database credentials.
+
+### Via YAML (Legacy)
+If you still use ```configuration.yaml```, your settings will be imported automatically on the first run. 
+
+**IMPORTANT**: Once imported, please remove the ```mysql_query:``` block from your YAML file to prevent conflicts.
 
 ```yaml
 mysql_query:
@@ -46,19 +55,16 @@ mysql_query:
   mysql_username: <mysqldb username>
   mysql_password: <mysqldb password>
   mysql_db: <mysqldb databasename>
-  mysql_port: 3306                         # Optional, defaults to 3306
-  mysql_autocommit: true                  # Optional, defaults to true
-  mysql_charset: utf8mb4                  # Optional
-  mysql_collation: utf8mb4_unicode_ci     # Optional
+  mysql_port: 3306
 ```
 
 ---
 
 ## Services
 
-This component provides two services. Both require a `response_variable` to capture the output.
+This component provides two services. Both require a ```response_variable``` to capture the output.
 
-### 1. Service: `mysql_query.query` (Legacy/Simple)
+### 1. Service: ```mysql_query.query``` (Legacy/Simple)
 Ideal for quick data retrieval where you only need the list of results.
 
 **Response Format:**
@@ -68,15 +74,16 @@ result:
     column2: "value2"
 ```
 
-### 2. Service: `mysql_query.execute` (Advanced/Recommended)
+### 2. Service: ```mysql_query.execute``` (Advanced/Recommended)
 Returns an extended response including metadata, timing, and detailed error information.
 
 **Response Format:**
 ```yaml
 succeeded: true            # Boolean: True if execution was successful
 execution_time_ms: 12.5    # Float: Time taken in milliseconds
+database: "active_db"      # String: The database used for this query
 statement: "SELECT..."     # String: The actual executed SQL statement
-results: []                # List: The result set (list of dictionaries)
+result: []                 # List: The result set (list of dictionaries)
 rows_affected: 0           # Integer: Number of rows changed
 generated_id: null         # Integer: Last inserted ID (if applicable)
 column_names: []           # List: List of column names
@@ -90,7 +97,7 @@ error:
 
 ## Automation Examples
 
-### Example: Using `mysql_query.query` (Simple loop)
+### Example: Using ```mysql_query.query``` (Simple loop)
 ```yaml
 alias: Notify Contact List
 action:
@@ -107,13 +114,14 @@ action:
         {% endfor %}
 ```
 
-### Example: Using `mysql_query.execute` (With Error Handling)
+### Example: Using ```mysql_query.execute``` (With Error Handling and DB switch)
 ```yaml
 alias: Secure Database Insert
 action:
   - service: mysql_query.execute
     data:
       query: "INSERT INTO logs (message) VALUES ('HA Triggered')"
+      db4query: "alternative_db"
     response_variable: db_result
   - if:
       - condition: template
@@ -122,11 +130,11 @@ action:
       - service: notify.admin
         data:
           title: "Database Error"
-          message: "Failed to log! Error: {{ db_result.error.message }} ({{ db_result.error.errno }})"
+          message: "Failed to log in {{ db_result.database }}! Error: {{ db_result.error.message }} ({{ db_result.error.errno }})"
     else:
       - service: notify.persistent_notification
         data:
-          message: "Success! New ID: {{ db_result.generated_id }}"
+          message: "Success in {{ db_result.database }}! New ID: {{ db_result.generated_id }}"
 ```
 
 ## Related Projects

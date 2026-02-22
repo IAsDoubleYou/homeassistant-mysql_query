@@ -154,19 +154,25 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         return {"result": _result}
 
     def handle_execute(call):
-        """Handle the new execute service call with structured response."""
+        """Handle the new execute service call with full metadata."""
         _query = call.data.get(ATTR_QUERY)
         _db4query = call.data.get(ATTR_DB4QUERY, None)
 
+        # Determine target database for reporting
+        target_db_name = _db4query if (_db4query and _db4query != "") else mysql_db
+
+        # Initialize with metadata including database and user
         response = {
             "succeeded": False,
             "execution_time_ms": 0,
+            "database": target_db_name,
+            "user": mysql_username,
             "statement": _query,
-            "results": [],
             "rows_affected": 0,
             "generated_id": None,
             "column_names": [],
-            "error": {"message": None, "errno": None, "sqlstate": None}
+            "error": {"message": None, "errno": None, "sqlstate": None},
+            "result": []
         }
 
         start_time = time.perf_counter()
@@ -196,7 +202,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                     _values = {}
                     for _c, _col in enumerate(_cols):
                         _values[_col[0]] = replace_blob_with_description(_row[_c])
-                    response["results"].append(_values)
+                    response["result"].append(_values)
 
             response["succeeded"] = True
 
