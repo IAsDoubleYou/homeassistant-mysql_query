@@ -12,5 +12,5 @@
         "mysql-connector-python==9.2.0"
     ],
     "version": "1.6.0",
-    "config_flow": false
+    "config_flow": true
 }

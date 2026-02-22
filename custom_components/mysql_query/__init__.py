@@ -1,242 +1,227 @@
-"""Support for mysql_query service."""
-
+"""The MySQL Query Service integration."""
 from __future__ import annotations
 
-import mysql.connector
-from mysql.connector import Error
 import logging
 import time
-import voluptuous as vol
-import homeassistant.helpers.config_validation as cv
+import mysql.connector
+from mysql.connector import Error
 from functools import partial
-from homeassistant.core import HomeAssistant, SupportsResponse
-from homeassistant.helpers.typing import ConfigType
+from typing import Any, Final
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
-from typing import Final
+from homeassistant.helpers.typing import ConfigType
+import homeassistant.helpers.config_validation as cv
+import voluptuous as vol
 
-DOMAIN = "mysql_query"
-SERVICE = "query"
-SERVICE_EXECUTE = "execute"
-
-ATTR_QUERY = "query"
-ATTR_DB4QUERY = "db4query"
-CONF_MYSQL_HOST = "mysql_host"
-CONF_MYSQL_USERNAME = "mysql_username"
-CONF_MYSQL_PASSWORD = "mysql_password"
-CONF_MYSQL_DB = "mysql_db"
-CONF_MYSQL_PORT = "mysql_port"
-CONF_MYSQL_TIMEOUT = "mysql_timeout"
-CONF_MYSQL_CHARSET = "mysql_charset"
-CONF_MYSQL_COLLATION = "mysql_collation"
-CONF_AUTOCOMMIT = "mysql_autocommit"
-QUERY = "query"
-DB4QUERY = "db4query"
+from .const import (
+    DOMAIN,
+    SERVICE_QUERY,
+    SERVICE_EXECUTE,
+    ATTR_QUERY,
+    ATTR_DB4QUERY,
+    ATTR_CONFIG_ENTRY,
+    CONF_MYSQL_HOST,
+    CONF_MYSQL_PORT,
+    CONF_MYSQL_USERNAME,
+    CONF_MYSQL_PASSWORD,
+    CONF_MYSQL_DB,
+    CONF_MYSQL_TIMEOUT,
+    CONF_MYSQL_CHARSET,
+    CONF_MYSQL_COLLATION,
+    CONF_AUTOCOMMIT,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-# Defaults
-DEFAULT_MYSQL_TIMEOUT = 10
-DEFAULT_MYSQL_PORT = 3306
-DEFAULT_MYSQL_AUTOCOMMIT = True
-
-CONFIG_SCHEMA = vol.Schema(
+# Service schema: query is required, config_entry and db4query are optional
+SERVICE_SCHEMA: Final = vol.Schema(
     {
-        DOMAIN: vol.Schema(
-            {
-                vol.Required(CONF_MYSQL_HOST): cv.string,
-                vol.Optional(CONF_MYSQL_PORT, default=DEFAULT_MYSQL_PORT): vol.Coerce(
-                    int
-                ),
-                vol.Required(CONF_MYSQL_USERNAME): cv.string,
-                vol.Required(CONF_MYSQL_PASSWORD): cv.string,
-                vol.Required(CONF_MYSQL_DB): cv.string,
-                vol.Optional(CONF_MYSQL_TIMEOUT, default=DEFAULT_MYSQL_TIMEOUT): vol.Coerce(int),
-                vol.Optional(CONF_MYSQL_CHARSET): cv.string,
-                vol.Optional(CONF_MYSQL_COLLATION): cv.string,
-                vol.Optional(CONF_AUTOCOMMIT, default=DEFAULT_MYSQL_AUTOCOMMIT): cv.boolean,
-            }
-        ),
-    },
-    extra=vol.ALLOW_EXTRA,
+        vol.Required(ATTR_QUERY): cv.string,
+        vol.Optional(ATTR_DB4QUERY): cv.string,
+        vol.Optional(ATTR_CONFIG_ENTRY): cv.string,
+    }
 )
 
-SERVICE_QUERY_SCHEMA: Final = vol.All(
-    cv.has_at_least_one_key(QUERY), cv.has_at_most_one_key(QUERY)
-)
-
+def replace_blob_with_description(value: Any) -> Any:
+    """Replace binary data with a string description for JSON compatibility."""
+    if isinstance(value, (bytes, bytearray)):
+        return "BLOB"
+    elif isinstance(value, memoryview):
+        return "LARGE OBJECT"
+    else:
+        return value
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    conf = config[DOMAIN]
-    mysql_host = conf.get(CONF_MYSQL_HOST)
-    mysql_port = conf.get(CONF_MYSQL_PORT, DEFAULT_MYSQL_PORT)
-    mysql_username = conf.get(CONF_MYSQL_USERNAME)
-    mysql_password = conf.get(CONF_MYSQL_PASSWORD)
-    mysql_db = conf.get(CONF_MYSQL_DB)
-    mysql_timeout = conf.get(CONF_MYSQL_TIMEOUT, DEFAULT_MYSQL_TIMEOUT)
-    mysql_collation = conf.get(CONF_MYSQL_COLLATION, None)
-    mysql_charset = conf.get(CONF_MYSQL_CHARSET, None)
-    mysql_autocommit = conf.get(CONF_AUTOCOMMIT, DEFAULT_MYSQL_AUTOCOMMIT)
+    """Set up the mysql_query component from YAML (Legacy/Import)."""
+    if DOMAIN in config:
+        hass.async_create_task(
+            hass.config_entries.flow.async_init(
+                DOMAIN,
+                context={"source": "import"},
+                data=config[DOMAIN],
+            )
+        )
+    return True
 
-    # Standard required connection arguments
-    connect_kwargs = {
-        "host": mysql_host,
-        "user": mysql_username,
-        "password": mysql_password,
-        "database": mysql_db,
-        "port": str(mysql_port),
-        "autocommit": mysql_autocommit,
-    }
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up mysql_query from a config entry."""
+    hass.data.setdefault(DOMAIN, {})
 
-    # Additional, optional connection arguments
-    if mysql_charset is not None:
-        connect_kwargs["charset"] = mysql_charset
-    if mysql_collation is not None:
-        connect_kwargs["collation"] = mysql_collation
+    config = entry.data
+
+    def connect():
+        conn_args = {
+            "host": config[CONF_MYSQL_HOST],
+            "port": str(config[CONF_MYSQL_PORT]),
+            "user": config[CONF_MYSQL_USERNAME],
+            "password": config[CONF_MYSQL_PASSWORD],
+            "database": config[CONF_MYSQL_DB],
+            "connection_timeout": config.get(CONF_MYSQL_TIMEOUT, 10),
+            "autocommit": config.get(CONF_AUTOCOMMIT, True),
+        }
+        if config.get(CONF_MYSQL_CHARSET):
+            conn_args["charset"] = config[CONF_MYSQL_CHARSET]
+        if config.get(CONF_MYSQL_COLLATION):
+            conn_args["collation"] = config[CONF_MYSQL_COLLATION]
+
+        _LOGGER.info(f"Establishing connection with database {config[CONF_MYSQL_DB]} at {config[CONF_MYSQL_HOST]}:{config[CONF_MYSQL_PORT]}")
+        return mysql.connector.connect(**conn_args)
 
     try:
-        _LOGGER.info(f"Establishing connection with database {
-                     mysql_db} at {mysql_host}:{mysql_port}")
-        _cnx = await hass.async_add_executor_job(partial(mysql.connector.connect, **connect_kwargs))
+        cnx = await hass.async_add_executor_job(connect)
+        _LOGGER.info(f"Connection established with database {config[CONF_MYSQL_DB]} at {config[CONF_MYSQL_HOST]}:{config[CONF_MYSQL_PORT]}")
 
+        hass.data[DOMAIN][entry.entry_id] = {
+            "cnx": cnx,
+            "config": config,
+            "title": entry.title
+        }
     except Exception as e:
-        _LOGGER.error("Could not connect to mysql server: %s",
-                      str(e), exc_info=True)
-        _cnx = None
-        raise HomeAssistantError(
-            f"Could not connect to mysql server: {str(e)}")
+        _LOGGER.error("Could not connect to mysql server for %s: %s", entry.title, str(e), exc_info=True)
+        return False
 
-    _LOGGER.info(f"Connection established with database {
-                 mysql_db} at {mysql_host}:{mysql_port}")
-    hass.data["mysql_connection"] = _cnx
+    async def async_handle_service(call: ServiceCall) -> ServiceResponse:
+        """Handle service calls with instance selection and legacy compatibility."""
+        _query = call.data[ATTR_QUERY]
+        _db4query = call.data.get(ATTR_DB4QUERY)
+        target_entry_id = call.data.get(ATTR_CONFIG_ENTRY)
 
-    def replace_blob_with_description(value):
-        if isinstance(value, (bytes, bytearray)):
-            return "BLOB"
-        elif isinstance(value, memoryview):
-            return "LARGE OBJECT"
+        # 1. Select instance (Target ID or fallback to first available)
+        if target_entry_id:
+            instance = hass.data[DOMAIN].get(target_entry_id)
         else:
-            return value
+            instance = next(iter(hass.data[DOMAIN].values()), None)
 
-    def handle_query(call):
-        """Handle the original query service call (Legacy/Backward Compatible)."""
-        _query = call.data.get(ATTR_QUERY)
-        _result = []
+        if not instance:
+            raise HomeAssistantError("No database instance available. Please configure the integration.")
 
-        if _query != None:
-            _db4query = call.data.get(ATTR_DB4QUERY, None)
-            if ((_db4query is not None) and (_db4query != "") and (_db4query.lower() != mysql_db.lower())):
-                try:
-                    connect_kwargs["database"] = _db4query
-                    _cnx4qry = mysql.connector.connect(**connect_kwargs)
-                except Exception as e:
-                    raise HomeAssistantError(f"Could not connect to mysql server: {str(e)}")
-            else:
-                _cnx4qry = _cnx
-
-            if _cnx4qry is not None:
-                try:
-                    _cnx4qry.ping(reconnect=True)
-                    _cursor = _cnx4qry.cursor(buffered=True)
-                    _cursor.execute(_query)
-                    if _cursor.with_rows:
-                        _cols = _cursor.description
-                        _rows = _cursor.fetchall()
-                        for _row in _rows:
-                            _values = {}
-                            for _c, _col in enumerate(_cols):
-                                _values[_col[0]] = replace_blob_with_description(_row[_c])
-                            _result.append(_values)
-                except Exception as e:
-                    raise HomeAssistantError(f"{str(e)}")
-        else:
-            raise HomeAssistantError("No query provided")
-
-        return {"result": _result}
-
-    def handle_execute(call):
-        """Handle the new execute service call with full metadata."""
-        _query = call.data.get(ATTR_QUERY)
-        _db4query = call.data.get(ATTR_DB4QUERY, None)
-
-        # Determine target database for reporting
+        _cnx = instance["cnx"]
+        inst_config = instance["config"]
+        mysql_db = inst_config[CONF_MYSQL_DB]
         target_db_name = _db4query if (_db4query and _db4query != "") else mysql_db
 
-        # Initialize with metadata including database and user
+        # 2. Prepare response structure
         response = {
-            "succeeded": False,
-            "execution_time_ms": 0,
-            "database": target_db_name,
-            "user": mysql_username,
-            "statement": _query,
-            "rows_affected": 0,
-            "generated_id": None,
-            "column_names": [],
-            "error": {"message": None, "errno": None, "sqlstate": None},
-            "result": []
+            "succeeded": False, "execution_time_ms": 0, "database": target_db_name,
+            "user": inst_config[CONF_MYSQL_USERNAME], "statement": _query,
+            "rows_affected": 0, "generated_id": None, "column_names": [],
+            "error": {"message": None, "errno": None, "sqlstate": None}, "result": []
         }
 
         start_time = time.perf_counter()
 
-        try:
-            # Connection logic
-            if (_db4query and _db4query != "" and _db4query.lower() != mysql_db.lower()):
-                temp_kwargs = connect_kwargs.copy()
-                temp_kwargs["database"] = _db4query
-                target_cnx = mysql.connector.connect(**temp_kwargs)
+        def execute_on_db():
+            # Connection management
+            active_cnx = _cnx
+            if _db4query and _db4query.lower() != mysql_db.lower():
+                temp_kwargs = {
+                    "host": inst_config[CONF_MYSQL_HOST], "user": inst_config[CONF_MYSQL_USERNAME],
+                    "password": inst_config[CONF_MYSQL_PASSWORD], "database": _db4query,
+                    "port": str(inst_config[CONF_MYSQL_PORT]),
+                }
+                active_cnx = mysql.connector.connect(**temp_kwargs)
             else:
-                target_cnx = _cnx
-                target_cnx.ping(reconnect=True)
+                if not active_cnx.is_connected():
+                    active_cnx.ping(reconnect=True)
 
-            _cursor = target_cnx.cursor(buffered=True)
-            _cursor.execute(_query)
+            try:
+                _cursor = active_cnx.cursor(buffered=True, dictionary=True)
+                _cursor.execute(_query)
 
-            response["statement"] = _cursor.statement
-            response["rows_affected"] = _cursor.rowcount
-            response["generated_id"] = _cursor.lastrowid if _cursor.lastrowid != 0 else None
+                res_list = []
+                cols = []
+                if _cursor.with_rows:
+                    cols = list(_cursor.column_names)
+                    for row in _cursor.fetchall():
+                        res_list.append({k: replace_blob_with_description(v) for k, v in row.items()})
 
-            if _cursor.with_rows:
-                _cols = _cursor.description
-                response["column_names"] = [col[0] for col in _cols]
-                _rows = _cursor.fetchall()
-                for _row in _rows:
-                    _values = {}
-                    for _c, _col in enumerate(_cols):
-                        _values[_col[0]] = replace_blob_with_description(_row[_c])
-                    response["result"].append(_values)
+                # Commit if not a select
+                if not _cursor.with_rows:
+                    active_cnx.commit()
 
-            response["succeeded"] = True
+                return {
+                    "res": res_list,
+                    "cols": cols,
+                    "rows_affected": _cursor.rowcount,
+                    "gen_id": _cursor.lastrowid if _cursor.lastrowid != 0 else None,
+                    "statement": _cursor.statement
+                }
+            finally:
+                _cursor.close()
+                if active_cnx is not _cnx:
+                    active_cnx.close()
+
+        try:
+            db_output = await hass.async_add_executor_job(execute_on_db)
+
+            # Populate modern response
+            response.update({
+                "succeeded": True,
+                "result": db_output["res"],
+                "column_names": db_output["cols"],
+                "rows_affected": db_output["rows_affected"],
+                "generated_id": db_output["gen_id"],
+                "statement": db_output["statement"],
+                "execution_time_ms": round((time.perf_counter() - start_time) * 1000, 2)
+            })
+
+            # 3. Return format based on service called
+            if call.service == SERVICE_QUERY:
+                return {"result": response["result"]}
+
+            return response
 
         except Error as e:
-            response["error"]["message"] = e.msg
-            response["error"]["errno"] = e.errno
-            response["error"]["sqlstate"] = e.sqlstate
-            _LOGGER.error("MySQL Execute Error [%s]: %s", e.errno, e.msg)
+            _LOGGER.error("MySQL Error [%s]: %s", e.errno, e.msg)
+            if call.service == SERVICE_QUERY:
+                raise HomeAssistantError(f"MySQL Error: {e.msg}")
+
+            response["error"] = {"message": e.msg, "errno": e.errno, "sqlstate": e.sqlstate}
+            response["execution_time_ms"] = round((time.perf_counter() - start_time) * 1000, 2)
+            return response
         except Exception as e:
+            _LOGGER.error("General Error: %s", str(e))
+            if call.service == SERVICE_QUERY:
+                raise HomeAssistantError(f"Error: {str(e)}")
+
             response["error"]["message"] = str(e)
-            _LOGGER.error("General Error during MySQL Execute: %s", str(e))
-        finally:
-            end_time = time.perf_counter()
-            response["execution_time_ms"] = round((end_time - start_time) * 1000, 2)
+            return response
 
-        return response
-
-    # Register Legacy Service
+    # Register Services
     hass.services.async_register(
-        DOMAIN,
-        SERVICE,
-        handle_query,
-        schema=SERVICE_QUERY_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
+        DOMAIN, SERVICE_QUERY, async_handle_service, schema=SERVICE_SCHEMA, supports_response=SupportsResponse.ONLY
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_EXECUTE, async_handle_service, schema=SERVICE_SCHEMA, supports_response=SupportsResponse.ONLY
     )
 
-    # Register New Execute Service
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_EXECUTE,
-        handle_execute,
-        schema=SERVICE_QUERY_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
-    )
+    return True
 
-    _LOGGER.info("Service mysql_query (query & execute) is now set up")
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
+    instance = hass.data[DOMAIN].pop(entry.entry_id, None)
+    if instance and instance["cnx"].is_connected():
+        await hass.async_add_executor_job(instance["cnx"].close)
     return True

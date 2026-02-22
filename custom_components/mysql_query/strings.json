@@ -1,0 +1,86 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Connect to your MySQL Database",
+                "description": "Please enter the connection details for your MySQL/MariaDB instance.",
+                "data": {
+                    "mysql_host": "Host",
+                    "mysql_port": "Port",
+                    "mysql_username": "Username",
+                    "mysql_password": "Password",
+                    "mysql_db": "Database",
+                    "mysql_timeout": "Connect Timeout (seconds)",
+                    "mysql_charset": "Charset",
+                    "mysql_collation": "Collation",
+                    "mysql_autocommit": "Autocommit"
+                }
+            }
+        },
+        "error": {
+            "cannot_connect": "Failed to connect, please check your settings.",
+            "invalid_auth": "Invalid authentication.",
+            "unknown": "Unexpected error occurred."
+        },
+        "abort": {
+            "already_configured": "This connection is already configured.",
+            "cannot_connect": "Failed to connect during import."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Settings",
+                "data": {
+                    "mysql_host": "Host",
+                    "mysql_port": "Port",
+                    "mysql_username": "Username",
+                    "mysql_password": "Password",
+                    "mysql_db": "Database",
+                    "mysql_timeout": "Connect Timeout (seconds)",
+                    "mysql_charset": "Charset",
+                    "mysql_collation": "Collation",
+                    "mysql_autocommit": "Autocommit"
+                }
+            }
+        }
+    },
+    "services": {
+        "execute": {
+            "name": "Execute",
+            "description": "Executes a SQL query and returns the results with full metadata.",
+            "fields": {
+                "query": {
+                    "name": "Query",
+                    "description": "The SQL query to execute."
+                },
+                "db4query": {
+                    "name": "Database for query",
+                    "description": "Optionally override the database name for this specific query."
+                },
+                "config_entry": {
+                    "name": "Connection",
+                    "description": "The database connection to run this query on. If left empty, the default instance will be used."
+                }
+            }
+        },
+        "query": {
+            "name": "Query (Legacy)",
+            "description": "Executes a SQL query and returns the results (minimal format).",
+            "fields": {
+                "query": {
+                    "name": "Query",
+                    "description": "The SQL query to execute."
+                },
+                "db4query": {
+                    "name": "Database for query",
+                    "description": "Optionally override the database name for this specific query."
+                },
+                "config_entry": {
+                    "name": "Connection",
+                    "description": "The database connection to run this query on."
+                }
+            }
+        }
+    }
+}
