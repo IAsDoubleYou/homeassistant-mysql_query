@@ -1,16 +1,16 @@
 {
-    "domain": "mysql_query",
-    "name": "MySQL Query Service",
-    "codeowners": [
-        "@IAsDoubleYou"
-    ],
-    "config_flow": true,
-    "documentation": "https://github.com/IAsDoubleYou/homeassistant-mysql_query",
-    "integration_type": "service",
-    "iot_class": "local_push",
-    "issue_tracker": "https://github.com/IAsDoubleYou/homeassistant-mysql_query/issues",
-    "requirements": [
-        "mysql-connector-python==9.2.0"
-    ],
-    "version": "1.6.0"
+  "domain": "mysql_query",
+  "name": "MySQL Query Service",
+  "codeowners": [
+    "@IAsDoubleYou"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/IAsDoubleYou/homeassistant-mysql_query",
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/IAsDoubleYou/homeassistant-mysql_query/issues",
+  "requirements": [
+    "mysql-connector-python==9.2.0"
+  ],
+  "version": "1.6.0"
 }
