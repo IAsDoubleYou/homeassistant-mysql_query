@@ -1,4 +1,5 @@
 {
-  "name": "MySQL Query",
-  "render_readme": true
+  "name": "MySQL Query Service",
+  "render_readme": true,
+  "filename": "mysql_query.zip"
 }
