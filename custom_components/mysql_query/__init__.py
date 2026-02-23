@@ -31,14 +31,14 @@ from .const import (
     CONF_MYSQL_CHARSET,
     CONF_MYSQL_COLLATION,
     CONF_AUTOCOMMIT,
+    CONF_ROW_LIMIT,
+    DEFAULT_ROW_LIMIT,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-# Voorkomt de [CONFIG_SCHEMA] waarschuwing
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-# Service schema: query is required, config_entry and db4query are optional
 SERVICE_SCHEMA: Final = vol.Schema(
     {
         vol.Required(ATTR_QUERY): cv.string,
@@ -71,12 +71,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up mysql_query from a config entry."""
     hass.data.setdefault(DOMAIN, {})
-
     config = entry.data
 
     def connect():
         """Establish a connection with safe defaults for optional fields."""
-        # GEWIJZIGD: Gebruik .get() om de KeyError op regel 77 te voorkomen
         db_host = config.get(CONF_MYSQL_HOST)
         db_port = config.get(CONF_MYSQL_PORT, 3306)
         db_user = config.get(CONF_MYSQL_USERNAME)
@@ -93,7 +91,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "autocommit": bool(config.get(CONF_AUTOCOMMIT, True)),
         }
 
-        # Optionele velden alleen toevoegen indien aanwezig
         charset = config.get(CONF_MYSQL_CHARSET)
         if charset:
             conn_args["charset"] = charset
@@ -106,10 +103,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return mysql.connector.connect(**conn_args)
 
     try:
-        # Dit is regel 93 uit je log
         cnx = await hass.async_add_executor_job(connect)
-        _LOGGER.info(f"Connection established with database {config.get(CONF_MYSQL_DB)} at {config.get(CONF_MYSQL_PORT, 3306)}")
-
         hass.data[DOMAIN][entry.entry_id] = {
             "cnx": cnx,
             "config": config,
@@ -120,7 +114,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
 
     async def async_handle_service(call: ServiceCall) -> ServiceResponse:
-        """Handle service calls with instance selection and legacy compatibility."""
+        """Handle service calls with instance selection and row limiting."""
         _query = call.data[ATTR_QUERY]
         _db4query = call.data.get(ATTR_DB4QUERY)
         target_entry_id = call.data.get(ATTR_CONFIG_ENTRY)
@@ -131,17 +125,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             instance = next(iter(hass.data[DOMAIN].values()), None)
 
         if not instance:
-            raise HomeAssistantError("No database instance available. Please configure the integration.")
+            raise HomeAssistantError("No database instance available.")
 
         _cnx = instance["cnx"]
         inst_config = instance["config"]
         mysql_db = inst_config.get(CONF_MYSQL_DB)
         target_db_name = _db4query if (_db4query and _db4query != "") else mysql_db
+        
+        row_limit = int(inst_config.get(CONF_ROW_LIMIT, DEFAULT_ROW_LIMIT))
+        if row_limit < 1:
+            row_limit = DEFAULT_ROW_LIMIT
 
         response = {
             "succeeded": False, "execution_time_ms": 0, "database": target_db_name,
             "user": inst_config.get(CONF_MYSQL_USERNAME), "statement": _query,
-            "rows_affected": 0, "generated_id": None, "column_names": [],
+            "rows_found": None, "rows_returned": None, "rows_affected": None, 
+            "generated_id": None, "column_names": [],
             "error": {"message": None, "errno": None, "sqlstate": None}, "result": []
         }
 
@@ -149,7 +148,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         def execute_on_db():
             active_cnx = _cnx
-            # Ook hier veilig de poort ophalen voor temp_kwargs
             if _db4query and str(_db4query).lower() != str(mysql_db).lower():
                 temp_kwargs = {
                     "host": inst_config.get(CONF_MYSQL_HOST),
@@ -169,18 +167,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                 res_list = []
                 cols = []
-                if _cursor.with_rows:
-                    cols = list(_cursor.column_names)
-                    for row in _cursor.fetchall():
-                        res_list.append({k: replace_blob_with_description(v) for k, v in row.items()})
+                is_select = _cursor.with_rows
 
-                if not _cursor.with_rows:
+                if is_select:
+                    cols = list(_cursor.column_names)
+                    rows = _cursor.fetchmany(size=row_limit)
+                    for row in rows:
+                        res_list.append({k: replace_blob_with_description(v) for k, v in row.items()})
+                    
+                    if _cursor.fetchone():
+                        _LOGGER.warning(
+                            "Query in %s afgebroken: Resultaatset overschrijdt de limiet van %s rijen.",
+                            target_db_name, row_limit
+                        )
+
+                if not is_select:
                     active_cnx.commit()
 
                 return {
                     "res": res_list,
                     "cols": cols,
-                    "rows_affected": _cursor.rowcount,
+                    "rows_found": _cursor.rowcount if is_select else None,
+                    "rows_returned": len(res_list) if is_select else None,
+                    "rows_affected": _cursor.rowcount if not is_select else None,
                     "gen_id": _cursor.lastrowid if _cursor.lastrowid != 0 else None,
                     "statement": _cursor.statement
                 }
@@ -195,6 +204,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "succeeded": True,
                 "result": db_output["res"],
                 "column_names": db_output["cols"],
+                "rows_found": db_output["rows_found"],
+                "rows_returned": db_output["rows_returned"],
                 "rows_affected": db_output["rows_affected"],
                 "generated_id": db_output["gen_id"],
                 "statement": db_output["statement"],

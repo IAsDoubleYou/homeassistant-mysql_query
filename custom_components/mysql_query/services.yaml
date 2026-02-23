@@ -26,7 +26,9 @@ query:
 
 execute:
   name: Execute (Modern)
-  description: Executes a SQL query and returns results with full metadata and execution time.
+  description: >
+    Executes a SQL query and returns results with full metadata, including
+    rows_found, rows_returned, and rows_affected.
   fields:
     query:
       name: Query

@@ -3,7 +3,7 @@
         "step": {
             "user": {
                 "title": "Connect to your MySQL Database",
-                "description": "Please enter the connection details for your MySQL/MariaDB instance.",
+                "description": "Please enter the connection details. Note: Setting the Row Limit above 1000 is at your own risk and may impact performance.",
                 "data": {
                     "mysql_host": "Host",
                     "mysql_port": "Port",
@@ -13,7 +13,8 @@
                     "mysql_timeout": "Connect Timeout (seconds)",
                     "mysql_charset": "Charset",
                     "mysql_collation": "Collation",
-                    "mysql_autocommit": "Autocommit"
+                    "mysql_autocommit": "Autocommit",
+                    "mysql_row_limit": "Row Limit (Safety Cap)"
                 }
             }
         },
@@ -40,7 +41,8 @@
                     "mysql_timeout": "Connect Timeout (seconds)",
                     "mysql_charset": "Charset",
                     "mysql_collation": "Collation",
-                    "mysql_autocommit": "Autocommit"
+                    "mysql_autocommit": "Autocommit",
+                    "mysql_row_limit": "Row Limit (Safety Cap)"
                 }
             }
         }

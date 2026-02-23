@@ -21,8 +21,10 @@ CONF_MYSQL_TIMEOUT = "mysql_timeout"
 CONF_MYSQL_CHARSET = "mysql_charset"
 CONF_MYSQL_COLLATION = "mysql_collation"
 CONF_AUTOCOMMIT = "mysql_autocommit"
+CONF_ROW_LIMIT = "mysql_row_limit"
 
 # Defaults
 DEFAULT_MYSQL_PORT = 3306
 DEFAULT_MYSQL_TIMEOUT = 10
 DEFAULT_MYSQL_AUTOCOMMIT = True
+DEFAULT_ROW_LIMIT = 1000

@@ -24,9 +24,11 @@ from .const import (
     CONF_MYSQL_CHARSET,
     CONF_MYSQL_COLLATION,
     CONF_AUTOCOMMIT,
+    CONF_ROW_LIMIT,
     DEFAULT_MYSQL_PORT,
     DEFAULT_MYSQL_TIMEOUT,
     DEFAULT_MYSQL_AUTOCOMMIT,
+    DEFAULT_ROW_LIMIT,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -48,6 +50,7 @@ def get_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Optional(CONF_MYSQL_CHARSET, default=defaults.get(CONF_MYSQL_CHARSET, "")): str,
             vol.Optional(CONF_MYSQL_COLLATION, default=defaults.get(CONF_MYSQL_COLLATION, "")): str,
             vol.Optional(CONF_AUTOCOMMIT, default=defaults.get(CONF_AUTOCOMMIT, DEFAULT_MYSQL_AUTOCOMMIT)): bool,
+            vol.Optional(CONF_ROW_LIMIT, default=defaults.get(CONF_ROW_LIMIT, DEFAULT_ROW_LIMIT)): int,
         }
     )
 
@@ -82,6 +85,10 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
+            # Forceer de default limiet als het veld leeg is of ongeldig
+            if not user_input.get(CONF_ROW_LIMIT) or user_input[CONF_ROW_LIMIT] < 1:
+                user_input[CONF_ROW_LIMIT] = DEFAULT_ROW_LIMIT
+            
             try:
                 await self._test_connection(user_input)
 
@@ -106,6 +113,10 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_import(self, import_data: dict[str, Any]) -> FlowResult:
         """Handle import from configuration.yaml."""
+        # Voeg de default limiet toe bij import als deze ontbreekt
+        if CONF_ROW_LIMIT not in import_data:
+            import_data[CONF_ROW_LIMIT] = DEFAULT_ROW_LIMIT
+
         unique_id = f"{import_data[CONF_MYSQL_HOST]}_{import_data[CONF_MYSQL_DB]}"
         await self.async_set_unique_id(unique_id)
         self._abort_if_unique_id_configured()
@@ -131,17 +142,18 @@ class MySQLQueryOptionsFlow(config_entries.OptionsFlow):
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
-        # Hernoemd naar _config_entry om conflict met de gereserveerde property te voorkomen
         self._config_entry = config_entry
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Manage the settings via the Configure button."""
         if user_input is not None:
-            # Update de entry data direct om wijzigingen op te slaan
+            # Forceer de default limiet als het veld leeg is of ongeldig
+            if not user_input.get(CONF_ROW_LIMIT) or user_input[CONF_ROW_LIMIT] < 1:
+                user_input[CONF_ROW_LIMIT] = DEFAULT_ROW_LIMIT
+                
             self.hass.config_entries.async_update_entry(self._config_entry, data=user_input)
             return self.async_create_entry(title="", data={})
 
-        # Gebruik de hernoemde variabele om huidige instellingen op te halen
         current_settings = dict(self._config_entry.data)
 
         return self.async_show_form(
