@@ -1,4 +1,4 @@
-# MySQL Query for Home Assistant
+# MySQL Query Service for Home Assistant
 
 [![HACS Custom][hacs_shield]][hacs]
 [![GitHub Latest Release][releases_shield]][latest_release]
@@ -142,12 +142,12 @@ action:
 - [HA MySQL](https://github.com/IAsDoubleYou/ha_mysql) - MySQL sensor component.
 - [coinbase_crypto_monitor](https://github.com/IAsDoubleYou/coinbase_crypto_monitor) - Coinbase monitor sensor.
 
-[hacs_shield]: [https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)
-[hacs]: [https://github.com/hacs/integration](https://github.com/hacs/integration)
-[latest_release]: [https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/latest](https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/latest)
-[releases_shield]: [https://img.shields.io/github/release/IAsDoubleYou/homeassistant-mysql_query.svg?style=for-the-badge](https://img.shields.io/github/release/IAsDoubleYou/homeassistant-mysql_query.svg?style=for-the-badge)
-[releases]: [https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/](https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/)
-[downloads_total_shield]: [https://img.shields.io/github/downloads/IAsDoubleYou/homeassistant-mysql_query/total?style=for-the-badge](https://img.shields.io/github/downloads/IAsDoubleYou/homeassistant-mysql_query/total?style=for-the-badge)
-[downloads_latest_shield]: [https://img.shields.io/github/downloads/IAsDoubleYou/homeassistant-mysql_query/latest/total?style=for-the-badge](https://img.shields.io/github/downloads/IAsDoubleYou/homeassistant-mysql_query/latest/total?style=for-the-badge)
-[community_forum_shield]: [https://img.shields.io/static/v1.svg?label=%20&message=Forum&style=for-the-badge&color=41bdf5&logo=HomeAssistant&logoColor=white](https://img.shields.io/static/v1.svg?label=%20&message=Forum&style=for-the-badge&color=41bdf5&logo=HomeAssistant&logoColor=white)
-[community_forum]: [https://community.home-assistant.io/t/mysql-query/734346](https://community.home-assistant.io/t/mysql-query/734346)
+[hacs_shield]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge
+[hacs]: https://github.com/hacs/integration
+[latest_release]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/latest
+[releases_shield]: https://img.shields.io/github/release/IAsDoubleYou/homeassistant-mysql_query.svg?style=for-the-badge
+[releases]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/
+[downloads_total_shield]: https://img.shields.io/github/downloads/IAsDoubleYou/homeassistant-mysql_query/total?style=for-the-badge
+[downloads_latest_shield]: https://img.shields.io/github/downloads/IAsDoubleYou/homeassistant-mysql_query/latest/total?style=for-the-badge
+[community_forum_shield]: https://img.shields.io/static/v1.svg?label=%20&message=Forum&style=for-the-badge&color=41bdf5&logo=HomeAssistant&logoColor=white
+[community_forum]: https://community.home-assistant.io/t/mysql-query/734346
