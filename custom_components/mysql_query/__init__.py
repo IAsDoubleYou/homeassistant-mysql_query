@@ -35,6 +35,9 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Voorkomt de [CONFIG_SCHEMA] waarschuwing
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
 # Service schema: query is required, config_entry and db4query are optional
 SERVICE_SCHEMA: Final = vol.Schema(
     {
@@ -72,26 +75,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     config = entry.data
 
     def connect():
-        conn_args = {
-            "host": config[CONF_MYSQL_HOST],
-            "port": str(config[CONF_MYSQL_PORT]),
-            "user": config[CONF_MYSQL_USERNAME],
-            "password": config[CONF_MYSQL_PASSWORD],
-            "database": config[CONF_MYSQL_DB],
-            "connection_timeout": config.get(CONF_MYSQL_TIMEOUT, 10),
-            "autocommit": config.get(CONF_AUTOCOMMIT, True),
-        }
-        if config.get(CONF_MYSQL_CHARSET):
-            conn_args["charset"] = config[CONF_MYSQL_CHARSET]
-        if config.get(CONF_MYSQL_COLLATION):
-            conn_args["collation"] = config[CONF_MYSQL_COLLATION]
+        """Establish a connection with safe defaults for optional fields."""
+        # GEWIJZIGD: Gebruik .get() om de KeyError op regel 77 te voorkomen
+        db_host = config.get(CONF_MYSQL_HOST)
+        db_port = config.get(CONF_MYSQL_PORT, 3306)
+        db_user = config.get(CONF_MYSQL_USERNAME)
+        db_pass = config.get(CONF_MYSQL_PASSWORD)
+        db_name = config.get(CONF_MYSQL_DB)
 
-        _LOGGER.info(f"Establishing connection with database {config[CONF_MYSQL_DB]} at {config[CONF_MYSQL_HOST]}:{config[CONF_MYSQL_PORT]}")
+        conn_args = {
+            "host": db_host,
+            "port": int(db_port),
+            "user": db_user,
+            "password": db_pass,
+            "database": db_name,
+            "connection_timeout": int(config.get(CONF_MYSQL_TIMEOUT, 10)),
+            "autocommit": bool(config.get(CONF_AUTOCOMMIT, True)),
+        }
+
+        # Optionele velden alleen toevoegen indien aanwezig
+        charset = config.get(CONF_MYSQL_CHARSET)
+        if charset:
+            conn_args["charset"] = charset
+
+        collation = config.get(CONF_MYSQL_COLLATION)
+        if collation:
+            conn_args["collation"] = collation
+
+        _LOGGER.info(f"Establishing connection with database {db_name} at {db_host}:{db_port}")
         return mysql.connector.connect(**conn_args)
 
     try:
+        # Dit is regel 93 uit je log
         cnx = await hass.async_add_executor_job(connect)
-        _LOGGER.info(f"Connection established with database {config[CONF_MYSQL_DB]} at {config[CONF_MYSQL_HOST]}:{config[CONF_MYSQL_PORT]}")
+        _LOGGER.info(f"Connection established with database {config.get(CONF_MYSQL_DB)} at {config.get(CONF_MYSQL_PORT, 3306)}")
 
         hass.data[DOMAIN][entry.entry_id] = {
             "cnx": cnx,
@@ -108,7 +125,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _db4query = call.data.get(ATTR_DB4QUERY)
         target_entry_id = call.data.get(ATTR_CONFIG_ENTRY)
 
-        # 1. Select instance (Target ID or fallback to first available)
         if target_entry_id:
             instance = hass.data[DOMAIN].get(target_entry_id)
         else:
@@ -119,13 +135,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         _cnx = instance["cnx"]
         inst_config = instance["config"]
-        mysql_db = inst_config[CONF_MYSQL_DB]
+        mysql_db = inst_config.get(CONF_MYSQL_DB)
         target_db_name = _db4query if (_db4query and _db4query != "") else mysql_db
 
-        # 2. Prepare response structure
         response = {
             "succeeded": False, "execution_time_ms": 0, "database": target_db_name,
-            "user": inst_config[CONF_MYSQL_USERNAME], "statement": _query,
+            "user": inst_config.get(CONF_MYSQL_USERNAME), "statement": _query,
             "rows_affected": 0, "generated_id": None, "column_names": [],
             "error": {"message": None, "errno": None, "sqlstate": None}, "result": []
         }
@@ -133,13 +148,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         start_time = time.perf_counter()
 
         def execute_on_db():
-            # Connection management
             active_cnx = _cnx
-            if _db4query and _db4query.lower() != mysql_db.lower():
+            # Ook hier veilig de poort ophalen voor temp_kwargs
+            if _db4query and str(_db4query).lower() != str(mysql_db).lower():
                 temp_kwargs = {
-                    "host": inst_config[CONF_MYSQL_HOST], "user": inst_config[CONF_MYSQL_USERNAME],
-                    "password": inst_config[CONF_MYSQL_PASSWORD], "database": _db4query,
-                    "port": str(inst_config[CONF_MYSQL_PORT]),
+                    "host": inst_config.get(CONF_MYSQL_HOST),
+                    "user": inst_config.get(CONF_MYSQL_USERNAME),
+                    "password": inst_config.get(CONF_MYSQL_PASSWORD),
+                    "database": _db4query,
+                    "port": int(inst_config.get(CONF_MYSQL_PORT, 3306)),
                 }
                 active_cnx = mysql.connector.connect(**temp_kwargs)
             else:
@@ -157,7 +174,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     for row in _cursor.fetchall():
                         res_list.append({k: replace_blob_with_description(v) for k, v in row.items()})
 
-                # Commit if not a select
                 if not _cursor.with_rows:
                     active_cnx.commit()
 
@@ -175,8 +191,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         try:
             db_output = await hass.async_add_executor_job(execute_on_db)
-
-            # Populate modern response
             response.update({
                 "succeeded": True,
                 "result": db_output["res"],
@@ -187,35 +201,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "execution_time_ms": round((time.perf_counter() - start_time) * 1000, 2)
             })
 
-            # 3. Return format based on service called
             if call.service == SERVICE_QUERY:
                 return {"result": response["result"]}
-
             return response
 
         except Error as e:
             _LOGGER.error("MySQL Error [%s]: %s", e.errno, e.msg)
             if call.service == SERVICE_QUERY:
                 raise HomeAssistantError(f"MySQL Error: {e.msg}")
-
             response["error"] = {"message": e.msg, "errno": e.errno, "sqlstate": e.sqlstate}
-            response["execution_time_ms"] = round((time.perf_counter() - start_time) * 1000, 2)
             return response
         except Exception as e:
             _LOGGER.error("General Error: %s", str(e))
             if call.service == SERVICE_QUERY:
                 raise HomeAssistantError(f"Error: {str(e)}")
-
             response["error"]["message"] = str(e)
             return response
 
-    # Register Services
-    hass.services.async_register(
-        DOMAIN, SERVICE_QUERY, async_handle_service, schema=SERVICE_SCHEMA, supports_response=SupportsResponse.ONLY
-    )
-    hass.services.async_register(
-        DOMAIN, SERVICE_EXECUTE, async_handle_service, schema=SERVICE_SCHEMA, supports_response=SupportsResponse.ONLY
-    )
+    hass.services.async_register(DOMAIN, SERVICE_QUERY, async_handle_service, schema=SERVICE_SCHEMA, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, SERVICE_EXECUTE, async_handle_service, schema=SERVICE_SCHEMA, supports_response=SupportsResponse.ONLY)
 
     return True
 
