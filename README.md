@@ -35,8 +35,9 @@ A Home Assistant custom component that provides *Responding services* to execute
 
 1. Navigate to your Home Assistant configuration directory.
 2. Create a ```custom_components/mysql_query``` directory.
-3. Download all files from this repository and place them in that directory.
-4. Restart Home Assistant.
+3. Download the ```mysql_query.zip``` from the [latest release](https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/latest).
+4. Extract the contents into the ```custom_components/mysql_query``` directory.
+5. Restart Home Assistant.
 
 ---
 
