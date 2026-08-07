@@ -1,3 +1,8 @@
 
 .DS_Store
 /custom_components/mysql_query/__pycache__
+/tests/__pycache__
+/tests/_win_shims/__pycache__
+.venv/
+.venv-wsl/
+.pytest_cache/

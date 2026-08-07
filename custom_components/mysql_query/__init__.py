@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 import mysql.connector
 from mysql.connector import Error
-from functools import partial
-from typing import Any, Final
+from mysql.connector.abstracts import MySQLConnectionAbstract
+from typing import Any, Final, TypedDict
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
@@ -39,6 +40,55 @@ _LOGGER = logging.getLogger(__name__)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
+DEBUGPY_HOST: Final = "0.0.0.0"
+DEBUGPY_PORT: Final = 5678
+
+_debugger_started = False
+
+
+def _env_flag(name: str) -> bool:
+    """Return True if the named environment variable is set to "true" (case-insensitive)."""
+    return os.environ.get(name, "").strip().lower() == "true"
+
+
+def _maybe_start_debugger() -> None:
+    """Start an opt-in debugpy listener when DEBUG or HA_DEBUG is enabled.
+
+    Disabled by default; only activates when explicitly requested via
+    environment variable, since it opens a debug port on all interfaces.
+    """
+    global _debugger_started
+    if _debugger_started or not (_env_flag("DEBUG") or _env_flag("HA_DEBUG")):
+        return
+
+    try:
+        import debugpy
+    except ImportError:
+        _LOGGER.warning(
+            "DEBUG/HA_DEBUG is set but debugpy is not installed; skipping remote "
+            "debugger. Install it with 'pip install debugpy' to enable it."
+        )
+        return
+
+    try:
+        debugpy.listen((DEBUGPY_HOST, DEBUGPY_PORT))
+    except Exception as err:  # noqa: BLE001 - never let debug tooling break setup
+        _LOGGER.error("Failed to start debugpy listener: %s", err)
+        return
+
+    _debugger_started = True
+    _LOGGER.warning(
+        "debugpy remote debugger listening on %s:%s. This port is reachable "
+        "from other devices on the network - only enable DEBUG/HA_DEBUG for "
+        "local development.",
+        DEBUGPY_HOST,
+        DEBUGPY_PORT,
+    )
+
+    if _env_flag("DEBUG_WAIT_FOR_CLIENT"):
+        _LOGGER.info("Waiting for a debugger client to attach on port %s...", DEBUGPY_PORT)
+        debugpy.wait_for_client()
+
 SERVICE_SCHEMA: Final = vol.Schema(
     {
         vol.Required(ATTR_QUERY): cv.string,
@@ -46,6 +96,18 @@ SERVICE_SCHEMA: Final = vol.Schema(
         vol.Optional(ATTR_CONFIG_ENTRY): cv.string,
     }
 )
+
+class QueryResult(TypedDict):
+    """Result payload returned by execute_on_db."""
+
+    res: list[dict[str, Any]]
+    cols: list[str]
+    rows_found: int | None
+    rows_returned: int | None
+    rows_affected: int | None
+    gen_id: int | None
+    statement: str
+
 
 def replace_blob_with_description(value: Any) -> Any:
     """Replace binary data with a string description for JSON compatibility."""
@@ -58,6 +120,8 @@ def replace_blob_with_description(value: Any) -> Any:
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the mysql_query component from YAML (Legacy/Import)."""
+    _maybe_start_debugger()
+
     if DOMAIN in config:
         hass.async_create_task(
             hass.config_entries.flow.async_init(
@@ -73,7 +137,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
     config = entry.data
 
-    def connect():
+    def connect() -> MySQLConnectionAbstract:
         """Establish a connection with safe defaults for optional fields."""
         db_host = config.get(CONF_MYSQL_HOST)
         db_port = config.get(CONF_MYSQL_PORT, 3306)
@@ -81,7 +145,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         db_pass = config.get(CONF_MYSQL_PASSWORD)
         db_name = config.get(CONF_MYSQL_DB)
 
-        conn_args = {
+        conn_args: dict[str, Any] = {
             "host": db_host,
             "port": int(db_port),
             "user": db_user,
@@ -146,10 +210,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         start_time = time.perf_counter()
 
-        def execute_on_db():
+        def execute_on_db() -> QueryResult:
             active_cnx = _cnx
             if _db4query and str(_db4query).lower() != str(mysql_db).lower():
-                temp_kwargs = {
+                temp_kwargs: dict[str, Any] = {
                     "host": inst_config.get(CONF_MYSQL_HOST),
                     "user": inst_config.get(CONF_MYSQL_USERNAME),
                     "password": inst_config.get(CONF_MYSQL_PASSWORD),
@@ -161,6 +225,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 if not active_cnx.is_connected():
                     active_cnx.ping(reconnect=True)
 
+            _cursor = None
             try:
                 _cursor = active_cnx.cursor(buffered=True, dictionary=True)
                 _cursor.execute(_query)
@@ -194,7 +259,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     "statement": _cursor.statement
                 }
             finally:
-                _cursor.close()
+                if _cursor is not None:
+                    _cursor.close()
                 if active_cnx is not _cnx:
                     active_cnx.close()
 

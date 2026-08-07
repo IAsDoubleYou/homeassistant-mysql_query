@@ -142,6 +142,10 @@ action:
 - [HA MySQL](https://github.com/IAsDoubleYou/ha_mysql) - MySQL sensor component.
 - [coinbase_crypto_monitor](https://github.com/IAsDoubleYou/coinbase_crypto_monitor) - Coinbase monitor sensor.
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a full list of changes per version.
+
 [hacs_shield]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge
 [hacs]: https://github.com/hacs/integration
 [latest_release]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/latest

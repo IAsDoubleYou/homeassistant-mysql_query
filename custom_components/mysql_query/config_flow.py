@@ -9,8 +9,8 @@ from mysql.connector import Error
 import voluptuous as vol
 
 from homeassistant import config_entries
+from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowResult
 import homeassistant.helpers.config_validation as cv
 
 from .const import (
@@ -61,8 +61,8 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _test_connection(self, user_input: dict[str, Any]) -> None:
         """Test if the database connection works with provided settings."""
-        def connect():
-            conn_args = {
+        def connect() -> None:
+            conn_args: dict[str, Any] = {
                 "host": user_input[CONF_MYSQL_HOST],
                 "port": user_input[CONF_MYSQL_PORT],
                 "user": user_input[CONF_MYSQL_USERNAME],
@@ -80,7 +80,7 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         await self.hass.async_add_executor_job(connect)
 
-    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Handle the initial step when a user adds the integration via UI."""
         errors = {}
 
@@ -111,7 +111,7 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors
         )
 
-    async def async_step_import(self, import_data: dict[str, Any]) -> FlowResult:
+    async def async_step_import(self, import_data: dict[str, Any]) -> ConfigFlowResult:
         """Handle import from configuration.yaml."""
         # Voeg de default limiet toe bij import als deze ontbreekt
         if CONF_ROW_LIMIT not in import_data:
@@ -144,7 +144,7 @@ class MySQLQueryOptionsFlow(config_entries.OptionsFlow):
         """Initialize options flow."""
         self._config_entry = config_entry
 
-    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Manage the settings via the Configure button."""
         if user_input is not None:
             # Forceer de default limiet als het veld leeg is of ongeldig
