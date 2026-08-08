@@ -1,6 +1,8 @@
 """Fixtures for mysql_query tests."""
 from __future__ import annotations
 
+import socket
+import sys
 from collections.abc import Generator
 from unittest.mock import MagicMock
 
@@ -14,6 +16,27 @@ import pytest
 # import) runs before any conftest.py, so this can't be done from here.
 
 pytest_plugins = "pytest_homeassistant_custom_component"
+
+if sys.platform == "win32":
+    # pytest_socket (enabled by pytest_homeassistant_custom_component) blocks
+    # socket.socket while allowing AF_UNIX. asyncio's self-pipe uses
+    # socket.socketpair(), which is a real AF_UNIX pair on POSIX but falls back
+    # to a loopback TCP pair on Windows - so creating any event loop is blocked
+    # there. Let socketpair() through using the unpatched socket class; it
+    # never leaves the machine and is unrelated to what the guard protects.
+    _real_socket = socket.socket
+    _stdlib_socketpair = socket.socketpair
+
+    def _unguarded_socketpair(*args: object, **kwargs: object) -> tuple:
+        """Build asyncio's self-pipe with the real, unguarded socket class."""
+        guarded = socket.socket
+        socket.socket = _real_socket  # type: ignore[misc]
+        try:
+            return _stdlib_socketpair(*args, **kwargs)
+        finally:
+            socket.socket = guarded  # type: ignore[misc]
+
+    socket.socketpair = _unguarded_socketpair  # type: ignore[assignment]
 
 
 @pytest.fixture(autouse=True)

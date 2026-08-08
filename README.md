@@ -122,6 +122,26 @@ error:
   errno: null              # Integer: MySQL error number
 ```
 
+### Data types in the result set
+
+Home Assistant serialises service responses to JSON, which has no notion of the
+native Python objects the MySQL driver returns. Values are therefore converted
+before they reach your automation:
+
+| MySQL column type | Returned as | Example |
+| --- | --- | --- |
+| `DECIMAL` / `NUMERIC` | Number | `19.99` |
+| `DATE` / `YEAR` | ISO 8601 string | `"2026-08-08"` |
+| `DATETIME` / `TIMESTAMP` | ISO 8601 string | `"2026-08-08T14:30:05"` |
+| `TIME` | String `[-]HH:MM:SS` | `"01:30:00"` |
+| `SET` | Sorted list of strings | `["a", "b"]` |
+| `JSON` | Object/list, converted recursively | `{"amount": 10.25}` |
+| `BLOB` / `BINARY` | `"BLOB"` | `"BLOB"` |
+| Large objects | `"LARGE OBJECT"` | `"LARGE OBJECT"` |
+
+`NULL` stays `null`, and values that cannot be represented in JSON (`NaN`,
+`Infinity`) are returned as `null`.
+
 ---
 
 ## Automation Examples

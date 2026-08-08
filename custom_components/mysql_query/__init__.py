@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import logging
-import os
+import math
 import time
+from datetime import date, datetime, time as dt_time, timedelta
+from decimal import Decimal
 import mysql.connector
 from mysql.connector import Error
 from mysql.connector.abstracts import MySQLConnectionAbstract
@@ -40,55 +42,6 @@ _LOGGER = logging.getLogger(__name__)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-DEBUGPY_HOST: Final = "0.0.0.0"
-DEBUGPY_PORT: Final = 5678
-
-_debugger_started = False
-
-
-def _env_flag(name: str) -> bool:
-    """Return True if the named environment variable is set to "true" (case-insensitive)."""
-    return os.environ.get(name, "").strip().lower() == "true"
-
-
-def _maybe_start_debugger() -> None:
-    """Start an opt-in debugpy listener when DEBUG or HA_DEBUG is enabled.
-
-    Disabled by default; only activates when explicitly requested via
-    environment variable, since it opens a debug port on all interfaces.
-    """
-    global _debugger_started
-    if _debugger_started or not (_env_flag("DEBUG") or _env_flag("HA_DEBUG")):
-        return
-
-    try:
-        import debugpy
-    except ImportError:
-        _LOGGER.warning(
-            "DEBUG/HA_DEBUG is set but debugpy is not installed; skipping remote "
-            "debugger. Install it with 'pip install debugpy' to enable it."
-        )
-        return
-
-    try:
-        debugpy.listen((DEBUGPY_HOST, DEBUGPY_PORT))
-    except Exception as err:  # noqa: BLE001 - never let debug tooling break setup
-        _LOGGER.error("Failed to start debugpy listener: %s", err)
-        return
-
-    _debugger_started = True
-    _LOGGER.warning(
-        "debugpy remote debugger listening on %s:%s. This port is reachable "
-        "from other devices on the network - only enable DEBUG/HA_DEBUG for "
-        "local development.",
-        DEBUGPY_HOST,
-        DEBUGPY_PORT,
-    )
-
-    if _env_flag("DEBUG_WAIT_FOR_CLIENT"):
-        _LOGGER.info("Waiting for a debugger client to attach on port %s...", DEBUGPY_PORT)
-        debugpy.wait_for_client()
-
 SERVICE_SCHEMA: Final = vol.Schema(
     {
         vol.Required(ATTR_QUERY): cv.string,
@@ -109,19 +62,76 @@ class QueryResult(TypedDict):
     statement: str
 
 
-def replace_blob_with_description(value: Any) -> Any:
-    """Replace binary data with a string description for JSON compatibility."""
+def format_timedelta(value: timedelta) -> str:
+    """Format a MySQL TIME value as ``[-]HH:MM:SS[.ffffff]``.
+
+    MySQL TIME columns are returned as ``timedelta`` objects, which have no
+    ``isoformat()``. Their ``str()`` renders spans of a day or more as
+    "1 day, 2:00:00", so build the MySQL-style representation explicitly.
+    """
+    total_seconds = value.total_seconds()
+    sign = "-" if total_seconds < 0 else ""
+    remainder = abs(value)
+
+    hours, rest = divmod(remainder.days * 86400 + remainder.seconds, 3600)
+    minutes, seconds = divmod(rest, 60)
+
+    formatted = f"{sign}{hours:02d}:{minutes:02d}:{seconds:02d}"
+    if remainder.microseconds:
+        formatted = f"{formatted}.{remainder.microseconds:06d}"
+    return formatted
+
+
+def to_json_serializable(value: Any) -> Any:
+    """Convert a MySQL column value into something HA can serialise to JSON.
+
+    Service responses are handed to Home Assistant's JSON encoder, which only
+    accepts the primitive JSON types. The MySQL connector, however, returns
+    native Python objects for several column types (DECIMAL, DATE, DATETIME,
+    TIME, SET, BLOB, ...), so map them onto JSON-friendly equivalents here.
+    """
+    if value is None or isinstance(value, (bool, int, str)):
+        return value
+
+    if isinstance(value, float):
+        # NaN/Infinity are not valid JSON and are rejected by HA's encoder.
+        return value if math.isfinite(value) else None
+
+    if isinstance(value, Decimal):
+        return float(value) if value.is_finite() else None
+
     if isinstance(value, (bytes, bytearray)):
         return "BLOB"
-    elif isinstance(value, memoryview):
+
+    if isinstance(value, memoryview):
         return "LARGE OBJECT"
-    else:
-        return value
+
+    if isinstance(value, timedelta):
+        return format_timedelta(value)
+
+    # datetime is a subclass of date, so both are covered by isoformat().
+    if isinstance(value, (datetime, date, dt_time)):
+        return value.isoformat()
+
+    if isinstance(value, dict):
+        return {str(key): to_json_serializable(item) for key, item in value.items()}
+
+    if isinstance(value, (list, tuple)):
+        return [to_json_serializable(item) for item in value]
+
+    if isinstance(value, (set, frozenset)):
+        # MySQL SET columns arrive as a Python set; sort for a stable response.
+        converted = [to_json_serializable(item) for item in value]
+        try:
+            return sorted(converted)
+        except TypeError:
+            return converted
+
+    return str(value)
+
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the mysql_query component from YAML (Legacy/Import)."""
-    _maybe_start_debugger()
-
     if DOMAIN in config:
         hass.async_create_task(
             hass.config_entries.flow.async_init(
@@ -238,7 +248,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     cols = list(_cursor.column_names)
                     rows = _cursor.fetchmany(size=row_limit)
                     for row in rows:
-                        res_list.append({k: replace_blob_with_description(v) for k, v in row.items()})
+                        res_list.append({k: to_json_serializable(v) for k, v in row.items()})
                     
                     if _cursor.fetchone():
                         _LOGGER.warning(
@@ -303,6 +313,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     instance = hass.data[DOMAIN].pop(entry.entry_id, None)
-    if instance and instance["cnx"].is_connected():
-        await hass.async_add_executor_job(instance["cnx"].close)
+    if instance is None:
+        return True
+
+    cnx = instance["cnx"]
+
+    def close_connection() -> None:
+        """Close the connection, if still open.
+
+        Both is_connected() and close() talk to the server, so they must run
+        in the executor instead of blocking the event loop.
+        """
+        if cnx.is_connected():
+            cnx.close()
+
+    await hass.async_add_executor_job(close_connection)
     return True

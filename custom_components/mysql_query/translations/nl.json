@@ -1,0 +1,88 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Verbinden met je MySQL-database",
+                "description": "Voer de verbindingsgegevens in. Let op: een rijlimiet boven de 1000 instellen is op eigen risico en kan de prestaties beïnvloeden.",
+                "data": {
+                    "mysql_host": "Host",
+                    "mysql_port": "Poort",
+                    "mysql_username": "Gebruikersnaam",
+                    "mysql_password": "Wachtwoord",
+                    "mysql_db": "Database",
+                    "mysql_timeout": "Verbindingstime-out (seconden)",
+                    "mysql_charset": "Tekenset",
+                    "mysql_collation": "Collatie",
+                    "mysql_autocommit": "Autocommit",
+                    "mysql_row_limit": "Rijlimiet (veiligheidsgrens)"
+                }
+            }
+        },
+        "error": {
+            "cannot_connect": "Verbinden is mislukt, controleer je instellingen.",
+            "invalid_auth": "Ongeldige authenticatie.",
+            "unknown": "Er is een onverwachte fout opgetreden."
+        },
+        "abort": {
+            "already_configured": "Deze verbinding is al geconfigureerd.",
+            "cannot_connect": "Verbinden tijdens het importeren is mislukt."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Instellingen",
+                "data": {
+                    "mysql_host": "Host",
+                    "mysql_port": "Poort",
+                    "mysql_username": "Gebruikersnaam",
+                    "mysql_password": "Wachtwoord",
+                    "mysql_db": "Database",
+                    "mysql_timeout": "Verbindingstime-out (seconden)",
+                    "mysql_charset": "Tekenset",
+                    "mysql_collation": "Collatie",
+                    "mysql_autocommit": "Autocommit",
+                    "mysql_row_limit": "Rijlimiet (veiligheidsgrens)"
+                }
+            }
+        }
+    },
+    "services": {
+        "execute": {
+            "name": "Uitvoeren",
+            "description": "Voert een SQL-query uit en geeft de resultaten terug met volledige metadata.",
+            "fields": {
+                "query": {
+                    "name": "Query",
+                    "description": "De SQL-query die uitgevoerd moet worden."
+                },
+                "db4query": {
+                    "name": "Database voor query",
+                    "description": "Overschrijf optioneel de databasenaam voor deze specifieke query."
+                },
+                "config_entry": {
+                    "name": "Verbinding",
+                    "description": "De databaseverbinding waarop deze query wordt uitgevoerd. Laat leeg om de standaardinstantie te gebruiken."
+                }
+            }
+        },
+        "query": {
+            "name": "Query (verouderd)",
+            "description": "Voert een SQL-query uit en geeft de resultaten terug (beknopt formaat).",
+            "fields": {
+                "query": {
+                    "name": "Query",
+                    "description": "De SQL-query die uitgevoerd moet worden."
+                },
+                "db4query": {
+                    "name": "Database voor query",
+                    "description": "Overschrijf optioneel de databasenaam voor deze specifieke query."
+                },
+                "config_entry": {
+                    "name": "Verbinding",
+                    "description": "De databaseverbinding waarop deze query wordt uitgevoerd."
+                }
+            }
+        }
+    }
+}
