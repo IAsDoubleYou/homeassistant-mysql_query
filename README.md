@@ -236,25 +236,104 @@ actions:
   - action: notify.persistent_notification
     data:
       title: Room temperatures
-      message: >-
-        {% for row in readings.result %}
-        {{ row.room }}: {{ row.temperature }}°C
-        {% endfor %}
+      message: |-
+        Current temperatures:
+        {%- for row in readings.result %}
+        - {{ row.room }}: {{ row.temperature }}°C
+        {%- endfor %}
 ```
 
-A script can hand the data back to its own caller by ending with a ```stop``` action:
+#### Example 1e: Reusing a query through a script (end-to-end)
+
+When several automations need the same query, put it in a script once and let the script hand the rows back to whoever called it. This takes two pieces: the script that fetches and returns the data, and the automation that calls it and works with the result.
+
+Two things to keep in mind while reading the example:
+
+- **```mysql_query.query``` always returns a list of rows under the key ```result```** — even when the query matches a single row, or none at all. So the rows are always at ```<your_response_variable>.result```, and each row is a mapping whose keys are the column names of your SELECT.
+- **The ```stop``` action is a script's return statement.** A script has no ```return```; instead you end it with ```stop```, and the variable you name in ```response_variable``` is what the caller receives. The text after ```stop:``` is only a log message explaining why the script ended.
+
+##### Step 1: Define the script
+
+Add this to ```configuration.yaml``` (or to ```scripts.yaml``` if you keep your scripts in a separate file, in which case you omit the top-level ```script:``` key).
 
 ```yaml
 script:
-  get_energy_total:
+  get_daily_energy_report:
+    alias: Get daily energy report
     sequence:
+      # Fetch today's rows and capture them in a local variable.
       - action: mysql_query.query
         data:
-          query: "SELECT SUM(kwh) AS total FROM energy_log WHERE day = CURDATE()"
-        response_variable: energy
-      - stop: "Done"
-        response_variable: energy
+          query: >-
+            SELECT sensor_id, kwh
+            FROM energy_log
+            WHERE day = CURDATE()
+            ORDER BY kwh DESC
+        response_variable: query_output
+
+      # Hand that variable back to the caller. This is the script's return value.
+      - stop: "Energy report retrieved"
+        response_variable: query_output
+    mode: single
 ```
+
+The script now returns the untouched service response, so the caller receives ```{"result": [ ... ]}```.
+
+##### Step 2: Call the script and loop through the results
+
+Call the script by its own entity id (```script.get_daily_energy_report```) and capture what it returns in ```response_variable```. Note that ```script.turn_on``` does **not** work here: it fires the script and returns immediately, without a response.
+
+The rows are then a normal list you can walk with a Jinja2 for-loop:
+
+```jinja2
+{% for row in energy_data.result %}
+  - {{ row.sensor_id }}: {{ row.kwh }} kWh
+{% endfor %}
+```
+
+Put together into a complete automation:
+
+```yaml
+alias: Daily energy report
+triggers:
+  - trigger: time
+    at: "23:55:00"
+conditions: []
+actions:
+  # Run the script and store its return value in 'energy_data'.
+  - action: script.get_daily_energy_report
+    response_variable: energy_data
+
+  # Skip the notification when the query returned no rows at all.
+  - condition: template
+    value_template: "{{ energy_data.result | count > 0 }}"
+
+  # Loop over every row and build one message out of it.
+  - action: notify.persistent_notification
+    data:
+      title: Daily energy report
+      message: |-
+        Energy usage for today:
+        {%- for row in energy_data.result %}
+        - {{ row.sensor_id }}: {{ row.kwh }} kWh
+        {%- endfor %}
+
+        Total: {{ energy_data.result | map(attribute='kwh') | sum | round(2) }} kWh
+mode: single
+```
+
+Which produces a notification like:
+
+```text
+Energy usage for today:
+- solar_inverter: 18.42 kWh
+- heat_pump: 7.15 kWh
+- washing_machine: 1.08 kWh
+
+Total: 26.65 kWh
+```
+
+> **Tip:** the ```-``` in ```{%- for ... %}``` and ```{%- endfor %}``` strips the surrounding newlines, so each row lands on its own line instead of leaving a blank line between them. Use a literal block (```|-```) rather than a folded one (```>-```) for multi-line output, because a folded block joins every line into one.
 
 ### 2. Service: ```mysql_query.execute``` (Advanced/Recommended)
 
