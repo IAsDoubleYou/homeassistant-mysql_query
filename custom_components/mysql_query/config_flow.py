@@ -4,8 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import mysql.connector
-from mysql.connector import Error
+from aiomysql import Error
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -30,6 +29,7 @@ from .const import (
     DEFAULT_MYSQL_AUTOCOMMIT,
     DEFAULT_ROW_LIMIT,
 )
+from .db import async_test_connection
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,24 +61,7 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _test_connection(self, user_input: dict[str, Any]) -> None:
         """Test if the database connection works with provided settings."""
-        def connect() -> None:
-            conn_args: dict[str, Any] = {
-                "host": user_input[CONF_MYSQL_HOST],
-                "port": user_input[CONF_MYSQL_PORT],
-                "user": user_input[CONF_MYSQL_USERNAME],
-                "password": user_input[CONF_MYSQL_PASSWORD],
-                "database": user_input[CONF_MYSQL_DB],
-                "connection_timeout": user_input[CONF_MYSQL_TIMEOUT],
-            }
-            if user_input.get(CONF_MYSQL_CHARSET):
-                conn_args["charset"] = user_input[CONF_MYSQL_CHARSET]
-            if user_input.get(CONF_MYSQL_COLLATION):
-                conn_args["collation"] = user_input[CONF_MYSQL_COLLATION]
-
-            conn = mysql.connector.connect(**conn_args)
-            conn.close()
-
-        await self.hass.async_add_executor_job(connect)
+        await async_test_connection(user_input)
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Handle the initial step when a user adds the integration via UI."""
@@ -98,7 +81,7 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 title = f"MySQL: {user_input[CONF_MYSQL_HOST]}/{user_input[CONF_MYSQL_DB]}"
                 return self.async_create_entry(title=title, data=user_input)
-            except Error as err:
+            except (Error, OSError, TimeoutError) as err:
                 _LOGGER.error("MySQL connection error: %s", err)
                 errors["base"] = "cannot_connect"
             except Exception:

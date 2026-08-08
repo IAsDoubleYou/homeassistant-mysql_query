@@ -1,10 +1,11 @@
 """Tests for the mysql_query config flow."""
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from collections.abc import Iterator
+from contextlib import contextmanager
+from unittest.mock import AsyncMock, patch
 
-from mysql.connector import Error as MySQLError
-import pytest
+from aiomysql import Error as MySQLError
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
@@ -21,6 +22,7 @@ from custom_components.mysql_query.const import (
     DEFAULT_ROW_LIMIT,
     DOMAIN,
 )
+from tests.conftest import FakePool
 
 USER_INPUT = {
     CONF_MYSQL_HOST: "localhost",
@@ -32,9 +34,24 @@ USER_INPUT = {
 }
 
 
+@contextmanager
+def patch_driver(**connect_kwargs) -> Iterator[AsyncMock]:
+    """Patch the connection test of the flow and the pool of the entry setup.
+
+    A successful flow creates a config entry, which Home Assistant sets up
+    right away, so the pool has to be mocked as well.
+    """
+    connect = AsyncMock(**({"return_value": AsyncMock()} | connect_kwargs))
+    with (
+        patch("aiomysql.connect", connect),
+        patch("aiomysql.create_pool", AsyncMock(return_value=FakePool())),
+    ):
+        yield connect
+
+
 async def test_user_flow_success(hass: HomeAssistant) -> None:
     """A valid connection creates a config entry."""
-    with patch("mysql.connector.connect", return_value=MagicMock()) as mock_connect:
+    with patch_driver() as mock_connect:
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
         )
@@ -48,17 +65,14 @@ async def test_user_flow_success(hass: HomeAssistant) -> None:
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "MySQL: localhost/test_db"
     assert result["data"][CONF_ROW_LIMIT] == DEFAULT_ROW_LIMIT
-    # Called once by the config flow's connection test, and again when HA
-    # sets up the newly created config entry (async_setup_entry).
-    assert mock_connect.call_count == 2
+    # A single throwaway connection to verify the settings; setting up the
+    # created entry builds a pool instead.
+    assert mock_connect.call_count == 1
 
 
 async def test_user_flow_cannot_connect(hass: HomeAssistant) -> None:
     """A MySQL connection error surfaces as a form error."""
-    with patch(
-        "mysql.connector.connect",
-        side_effect=MySQLError(msg="Access denied", errno=1045),
-    ):
+    with patch_driver(side_effect=MySQLError(1045, "Access denied")):
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
         )
@@ -72,7 +86,7 @@ async def test_user_flow_cannot_connect(hass: HomeAssistant) -> None:
 
 async def test_user_flow_unknown_error(hass: HomeAssistant) -> None:
     """An unexpected exception surfaces as an unknown form error."""
-    with patch("mysql.connector.connect", side_effect=RuntimeError("boom")):
+    with patch_driver(side_effect=RuntimeError("boom")):
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
         )
@@ -88,7 +102,7 @@ async def test_user_flow_invalid_row_limit_falls_back_to_default(
     hass: HomeAssistant,
 ) -> None:
     """An invalid row limit is replaced by the default before saving."""
-    with patch("mysql.connector.connect", return_value=MagicMock()):
+    with patch_driver():
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
         )

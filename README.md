@@ -17,6 +17,8 @@ A Home Assistant custom component that provides ```Responding services``` to exe
 - **Multiple database support**: Configure multiple connections via UI and select them in service calls.
 - **Dynamic Overrides**: Query another database on the same server per individual call using ```db4query```.
 - **JSON-safe results**: MySQL types such as ```DECIMAL```, ```DATE``` and ```TIME``` are converted automatically.
+- **Connection pooling**: every connection keeps a small pool of warm, automatically recycled MySQL connections instead of reconnecting per call.
+- **Safe under load**: simultaneous service calls on the same connection are queued, so their statements never interleave on the same MySQL socket.
 - Full integration with Home Assistant automations and scripts.
 - Support for Service Response Data (introduced in HA 2023.7).
 
@@ -71,7 +73,7 @@ All fields below appear both in the setup form and in the options form. The **Ke
 | **Username** | ```mysql_username``` | Yes | – | Database user used for every query on this connection. Grant it only the privileges you actually need. |
 | **Password** | ```mysql_password``` | Yes | – | Password of that database user. Stored in the Home Assistant config entry and never written to the log. |
 | **Database** | ```mysql_db``` | Yes | – | Name of the default database. Every query on this connection runs against it unless you override it with ```db4query```. |
-| **Connect Timeout (seconds)** | ```mysql_timeout``` | No | ```10``` | How long to wait for the initial connection before giving up. Raise it for slow or remote servers. |
+| **Connect Timeout (seconds)** | ```mysql_timeout``` | No | ```10``` | How long to wait for a connection before giving up, both when opening a new one and when waiting for a free connection from the pool. Raise it for slow or remote servers. |
 | **Charset** | ```mysql_charset``` | No | driver default (```utf8mb4```) | Optional character set for the connection, for example ```utf8mb4```. Leave empty to use the driver default. |
 | **Collation** | ```mysql_collation``` | No | server default | Optional collation, for example ```utf8mb4_unicode_ci```. Must be compatible with the chosen charset. Leave empty to use the server default. |
 | **Autocommit** | ```mysql_autocommit``` | No | ```true``` | When enabled, every statement is committed immediately. With autocommit disabled the integration still commits explicitly after a successful non-SELECT statement, so writes are not lost. |
@@ -93,6 +95,12 @@ There are two ways rows are limited: the SQL-level ```LIMIT``` (user-defined) an
 | **SQL limit > Row Limit** | 1000 | SELECT * FROM table LIMIT 5000 | 5000 | **1000** |
 
 ```rows_found``` reports what the query matched on the server, so comparing it with ```rows_returned``` tells you whether the safety net truncated your result. Whenever it does, a warning is written to the Home Assistant log. To actually retrieve more than the cap, raise **Row Limit** on the connection.
+
+#### Connections and concurrency
+
+Every configured connection owns a small pool of MySQL connections that stay open between service calls, so a query no longer pays for a connection handshake. Connections are recycled after an hour and checked before use, which means the integration silently recovers when the server drops an idle connection or when the database was restarted.
+
+Service calls on the same connection are handled one at a time. Home Assistant can fire several automations at once, and running their statements simultaneously over one connection would mix up the results, so the integration lets them queue instead. Calls on *different* configured connections do run in parallel — configure a second connection if you want two databases to be queried at the same time.
 
 ### Via YAML (Legacy Import)
 If you still use ```configuration.yaml```, your settings will be imported automatically.
@@ -160,7 +168,7 @@ actions:
 
 #### Example 1b: Querying another database with ```db4query```
 
-```db4query``` temporarily points the statement at a different database on the same server, using the same host, port and credentials as the configured connection. The integration opens a short-lived connection for that statement and closes it again afterwards, so your default connection stays untouched.
+```db4query``` temporarily points the statement at a different database on the same server, using the same host, port and credentials as the configured connection. The integration switches a pooled connection to that database for the duration of the statement and switches it back afterwards, so the next call again runs against your configured default database.
 
 ```yaml
 actions:
@@ -355,7 +363,7 @@ column_names: []           # List: List of column names
 error:
   message: null            # String: Human-readable error message
   errno: null              # Integer: MySQL error number
-  sqlstate: null           # String: MySQL SQLSTATE code
+  sqlstate: null           # String: reserved, always null since 2.0.0
 ```
 
 Unlike ```mysql_query.query```, this service does **not** raise on a SQL error. It returns ```succeeded: false``` with the details in ```error```, so your automation keeps running and can decide what to do.
@@ -433,7 +441,7 @@ actions:
     response_variable: inventory_update
 ```
 
-The statement runs against the ```inventory``` database on the same server, and the response's ```database``` field confirms which database was used. Writes made through ```db4query``` are committed before the temporary connection is closed.
+The statement runs against the ```inventory``` database on the same server, and the response's ```database``` field confirms which database was used. Writes made through ```db4query``` are committed before the connection is switched back to the default database.
 
 #### Example 2d: Creating a table (DDL)
 
@@ -496,6 +504,7 @@ before they reach your automation:
 | Statement succeeds | Returns ```result``` | Returns full metadata, ```succeeded: true``` |
 | SQL error (syntax, permissions, …) | Raises; the automation stops | Returns ```succeeded: false``` and fills ```error``` |
 | Connection dropped | Reconnects automatically, then behaves as above | Reconnects automatically, then behaves as above |
+| No free pooled connection within the connect timeout | Raises | Returns ```succeeded: false``` and fills ```error``` |
 | No connection configured | Raises | Raises |
 
 ---
