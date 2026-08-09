@@ -27,6 +27,7 @@ A Home Assistant custom component that provides ```Responding services``` to exe
 ## Requirements
 
 - Home Assistant version 2023.7 or newer (due to Responding services functionality)
+- The ```aiomysql``` driver, which Home Assistant installs automatically from ```manifest.json```
 
 ## Installation
 
@@ -43,6 +44,26 @@ A Home Assistant custom component that provides ```Responding services``` to exe
 3. Download the ```mysql_query.zip``` from the [latest release](https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/latest).
 4. Extract the contents into the ```custom_components/mysql_query``` directory.
 5. Restart Home Assistant.
+
+---
+
+## Upgrading from 1.x to 2.0.0
+
+Version 2.0.0 replaces the database driver and changes how connections are managed. Your existing connections keep working and no reconfiguration is needed, but two things are worth knowing before you upgrade.
+
+**A new dependency is installed.** The integration moved from ```mysql-connector-python``` to ```aiomysql```, so queries now talk to MySQL over asyncio instead of through a worker thread. Home Assistant installs the new requirement on the first start after the upgrade; give that start a little extra time and make sure the instance can reach PyPI.
+
+**```error.sqlstate``` is always ```null```.** The new driver does not expose the SQLSTATE code. If an automation reads ```error.sqlstate``` from a ```mysql_query.execute``` response, switch it to ```error.errno``` or ```error.message```, which are unchanged and carry the same information:
+
+```yaml
+# Before (1.x)
+value_template: "{{ result.error.sqlstate == '42S02' }}"
+
+# After (2.0.0) - errno 1146 is "table doesn't exist"
+value_template: "{{ result.error.errno == 1146 }}"
+```
+
+Everything else — the service names, their fields, and the rest of the response format — is unchanged.
 
 ---
 
@@ -98,9 +119,11 @@ There are two ways rows are limited: the SQL-level ```LIMIT``` (user-defined) an
 
 #### Connections and concurrency
 
-Every configured connection owns a small pool of MySQL connections that stay open between service calls, so a query no longer pays for a connection handshake. Connections are recycled after an hour and checked before use, which means the integration silently recovers when the server drops an idle connection or when the database was restarted.
+Every configured connection owns a small pool of MySQL connections that stay open between service calls, so a query no longer pays for a connection handshake. The pool keeps one connection warm and grows to at most five. Connections are recycled after an hour and pinged before every statement, which means the integration silently recovers when the server drops an idle connection or when the database was restarted.
 
 Service calls on the same connection are handled one at a time. Home Assistant can fire several automations at once, and running their statements simultaneously over one connection would mix up the results, so the integration lets them queue instead. Calls on *different* configured connections do run in parallel — configure a second connection if you want two databases to be queried at the same time.
+
+Because the calls queue, a slow query delays the ones behind it on the same connection. Waiting for a free pooled connection is bounded by **Connect Timeout**: when no connection becomes available within that many seconds, the call fails with an error instead of hanging your automation. These settings are not user-configurable beyond that timeout — the pool is sized for the queueing behaviour described above.
 
 ### Via YAML (Legacy Import)
 If you still use ```configuration.yaml```, your settings will be imported automatically.
