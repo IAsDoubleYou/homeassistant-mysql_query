@@ -41,8 +41,16 @@ A Home Assistant custom component that provides ```Responding services``` to exe
 
 1. Navigate to your Home Assistant configuration directory.
 2. Create a ```custom_components/mysql_query``` directory.
-3. Download the ```mysql_query.zip``` from the [latest release](https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/latest).
-4. Extract the contents into the ```custom_components/mysql_query``` directory.
+3. Download ```homeassistant-mysql_query.zip``` from the [latest release](https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/latest).
+4. Extract the contents of the zip directly into ```custom_components/mysql_query```. The archive has no top-level folder, so ```__init__.py```, ```manifest.json``` and the ```translations``` folder must end up straight in that directory:
+
+   ```text
+   custom_components/mysql_query/__init__.py
+   custom_components/mysql_query/manifest.json
+   custom_components/mysql_query/translations/en.json
+   ```
+
+   If you end up with ```custom_components/mysql_query/mysql_query/__init__.py```, move the files one level up.
 5. Restart Home Assistant.
 
 ---
@@ -543,7 +551,7 @@ See [CHANGELOG.md](CHANGELOG.md) for a full list of changes per version.
 [hacs_shield]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge
 [hacs]: https://github.com/hacs/integration
 [latest_release]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/latest
-[releases_shield]: https://img.shields.io/github/release/IAsDoubleYou/homeassistant-mysql_query.svg?style=for-the-badge
+[releases_shield]: https://img.shields.io/github/v/release/IAsDoubleYou/homeassistant-mysql_query?style=for-the-badge
 [releases]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/
 [downloads_total_shield]: https://img.shields.io/github/downloads/IAsDoubleYou/homeassistant-mysql_query/total?style=for-the-badge
 [downloads_latest_shield]: https://img.shields.io/github/downloads/IAsDoubleYou/homeassistant-mysql_query/latest/total?style=for-the-badge
