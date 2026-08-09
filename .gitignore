@@ -6,3 +6,5 @@
 .venv/
 .venv-wsl/
 .pytest_cache/
+README.pdf
+c.bat

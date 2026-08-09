@@ -17,6 +17,8 @@ A Home Assistant custom component that provides ```Responding services``` to exe
 - **Multiple database support**: Configure multiple connections via UI and select them in service calls.
 - **Dynamic Overrides**: Query another database on the same server per individual call using ```db4query```.
 - **JSON-safe results**: MySQL types such as ```DECIMAL```, ```DATE``` and ```TIME``` are converted automatically.
+- **Connection pooling**: every connection keeps a small pool of warm, automatically recycled MySQL connections instead of reconnecting per call.
+- **Safe under load**: simultaneous service calls on the same connection are queued, so their statements never interleave on the same MySQL socket.
 - Full integration with Home Assistant automations and scripts.
 - Support for Service Response Data (introduced in HA 2023.7).
 
@@ -25,6 +27,7 @@ A Home Assistant custom component that provides ```Responding services``` to exe
 ## Requirements
 
 - Home Assistant version 2023.7 or newer (due to Responding services functionality)
+- The ```aiomysql``` driver, which Home Assistant installs automatically from ```manifest.json```
 
 ## Installation
 
@@ -41,6 +44,26 @@ A Home Assistant custom component that provides ```Responding services``` to exe
 3. Download the ```mysql_query.zip``` from the [latest release](https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/latest).
 4. Extract the contents into the ```custom_components/mysql_query``` directory.
 5. Restart Home Assistant.
+
+---
+
+## Upgrading from 1.x to 2.0.0
+
+Version 2.0.0 replaces the database driver and changes how connections are managed. Your existing connections keep working and no reconfiguration is needed, but two things are worth knowing before you upgrade.
+
+**A new dependency is installed.** The integration moved from ```mysql-connector-python``` to ```aiomysql```, so queries now talk to MySQL over asyncio instead of through a worker thread. Home Assistant installs the new requirement on the first start after the upgrade; give that start a little extra time and make sure the instance can reach PyPI.
+
+**```error.sqlstate``` is always ```null```.** The new driver does not expose the SQLSTATE code. If an automation reads ```error.sqlstate``` from a ```mysql_query.execute``` response, switch it to ```error.errno``` or ```error.message```, which are unchanged and carry the same information:
+
+```yaml
+# Before (1.x)
+value_template: "{{ result.error.sqlstate == '42S02' }}"
+
+# After (2.0.0) - errno 1146 is "table doesn't exist"
+value_template: "{{ result.error.errno == 1146 }}"
+```
+
+Everything else — the service names, their fields, and the rest of the response format — is unchanged.
 
 ---
 
@@ -71,7 +94,7 @@ All fields below appear both in the setup form and in the options form. The **Ke
 | **Username** | ```mysql_username``` | Yes | – | Database user used for every query on this connection. Grant it only the privileges you actually need. |
 | **Password** | ```mysql_password``` | Yes | – | Password of that database user. Stored in the Home Assistant config entry and never written to the log. |
 | **Database** | ```mysql_db``` | Yes | – | Name of the default database. Every query on this connection runs against it unless you override it with ```db4query```. |
-| **Connect Timeout (seconds)** | ```mysql_timeout``` | No | ```10``` | How long to wait for the initial connection before giving up. Raise it for slow or remote servers. |
+| **Connect Timeout (seconds)** | ```mysql_timeout``` | No | ```10``` | How long to wait for a connection before giving up, both when opening a new one and when waiting for a free connection from the pool. Raise it for slow or remote servers. |
 | **Charset** | ```mysql_charset``` | No | driver default (```utf8mb4```) | Optional character set for the connection, for example ```utf8mb4```. Leave empty to use the driver default. |
 | **Collation** | ```mysql_collation``` | No | server default | Optional collation, for example ```utf8mb4_unicode_ci```. Must be compatible with the chosen charset. Leave empty to use the server default. |
 | **Autocommit** | ```mysql_autocommit``` | No | ```true``` | When enabled, every statement is committed immediately. With autocommit disabled the integration still commits explicitly after a successful non-SELECT statement, so writes are not lost. |
@@ -93,6 +116,14 @@ There are two ways rows are limited: the SQL-level ```LIMIT``` (user-defined) an
 | **SQL limit > Row Limit** | 1000 | SELECT * FROM table LIMIT 5000 | 5000 | **1000** |
 
 ```rows_found``` reports what the query matched on the server, so comparing it with ```rows_returned``` tells you whether the safety net truncated your result. Whenever it does, a warning is written to the Home Assistant log. To actually retrieve more than the cap, raise **Row Limit** on the connection.
+
+#### Connections and concurrency
+
+Every configured connection owns a small pool of MySQL connections that stay open between service calls, so a query no longer pays for a connection handshake. The pool keeps one connection warm and grows to at most five. Connections are recycled after an hour and pinged before every statement, which means the integration silently recovers when the server drops an idle connection or when the database was restarted.
+
+Service calls on the same connection are handled one at a time. Home Assistant can fire several automations at once, and running their statements simultaneously over one connection would mix up the results, so the integration lets them queue instead. Calls on *different* configured connections do run in parallel — configure a second connection if you want two databases to be queried at the same time.
+
+Because the calls queue, a slow query delays the ones behind it on the same connection. Waiting for a free pooled connection is bounded by **Connect Timeout**: when no connection becomes available within that many seconds, the call fails with an error instead of hanging your automation. These settings are not user-configurable beyond that timeout — the pool is sized for the queueing behaviour described above.
 
 ### Via YAML (Legacy Import)
 If you still use ```configuration.yaml```, your settings will be imported automatically.
@@ -160,7 +191,7 @@ actions:
 
 #### Example 1b: Querying another database with ```db4query```
 
-```db4query``` temporarily points the statement at a different database on the same server, using the same host, port and credentials as the configured connection. The integration opens a short-lived connection for that statement and closes it again afterwards, so your default connection stays untouched.
+```db4query``` temporarily points the statement at a different database on the same server, using the same host, port and credentials as the configured connection. The integration switches a pooled connection to that database for the duration of the statement and switches it back afterwards, so the next call again runs against your configured default database.
 
 ```yaml
 actions:
@@ -355,7 +386,7 @@ column_names: []           # List: List of column names
 error:
   message: null            # String: Human-readable error message
   errno: null              # Integer: MySQL error number
-  sqlstate: null           # String: MySQL SQLSTATE code
+  sqlstate: null           # String: reserved, always null since 2.0.0
 ```
 
 Unlike ```mysql_query.query```, this service does **not** raise on a SQL error. It returns ```succeeded: false``` with the details in ```error```, so your automation keeps running and can decide what to do.
@@ -433,7 +464,7 @@ actions:
     response_variable: inventory_update
 ```
 
-The statement runs against the ```inventory``` database on the same server, and the response's ```database``` field confirms which database was used. Writes made through ```db4query``` are committed before the temporary connection is closed.
+The statement runs against the ```inventory``` database on the same server, and the response's ```database``` field confirms which database was used. Writes made through ```db4query``` are committed before the connection is switched back to the default database.
 
 #### Example 2d: Creating a table (DDL)
 
@@ -496,6 +527,7 @@ before they reach your automation:
 | Statement succeeds | Returns ```result``` | Returns full metadata, ```succeeded: true``` |
 | SQL error (syntax, permissions, …) | Raises; the automation stops | Returns ```succeeded: false``` and fills ```error``` |
 | Connection dropped | Reconnects automatically, then behaves as above | Reconnects automatically, then behaves as above |
+| No free pooled connection within the connect timeout | Raises | Returns ```succeeded: false``` and fills ```error``` |
 | No connection configured | Raises | Raises |
 
 ---

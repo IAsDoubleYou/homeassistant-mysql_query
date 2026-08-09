@@ -28,3 +28,13 @@ DEFAULT_MYSQL_PORT = 3306
 DEFAULT_MYSQL_TIMEOUT = 10
 DEFAULT_MYSQL_AUTOCOMMIT = True
 DEFAULT_ROW_LIMIT = 1000
+
+# Connection pool sizing. Service calls on one config entry are serialised by
+# an asyncio.Lock, so one warm connection carries the normal load; the extra
+# headroom keeps the pool serving while a connection is being replaced.
+POOL_MIN_SIZE = 1
+POOL_MAX_SIZE = 5
+
+# Drop and rebuild a pooled connection after this many seconds, so it is never
+# handed out after the server closed it on its own wait_timeout.
+POOL_RECYCLE_SECONDS = 3600

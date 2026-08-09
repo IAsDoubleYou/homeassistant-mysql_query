@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-08-08
+
+### Added
+- An `aiomysql` connection pool per config entry. Connections stay open between service calls instead of being opened and closed per query, are recycled after an hour, and are checked with a ping before every statement so a connection the server dropped while idle is transparently rebuilt.
+- An `asyncio.Lock` per config entry. Concurrent `mysql_query.query` and `mysql_query.execute` calls on the same connection are now handled one after another, so their statements can no longer interleave on the same MySQL socket. Calls on different config entries still run in parallel.
+- A timeout on waiting for a free pooled connection, using the configured **Connect Timeout**. It surfaces as a raised error for `query` and as an `error` payload for `execute` instead of hanging the call.
+- Reloading of a config entry when its settings change, so an edit through the Options Flow rebuilds the pool instead of leaving the old settings in place until a restart.
+- `db.py`, holding the connection settings, pool creation and connection test shared by the integration and the config flow.
+- Tests for the pool (creation settings, reuse, ping, teardown) and for the lock (serialised calls, independence between entries, unload waiting for a running call).
+
+### Changed
+- **Breaking:** the driver moved from `mysql-connector-python` to `aiomysql`, so queries talk to MySQL over asyncio instead of through a worker thread. Home Assistant installs the new requirement automatically.
+- `db4query` no longer opens a short-lived second connection. The pooled connection is switched to the requested database for the statement and switched back afterwards; a connection that cannot be switched back is dropped from the pool instead of being reused.
+- The services are registered once for the domain instead of being re-registered by every config entry, and they are removed again when the last entry is unloaded.
+- The warning logged when a result set exceeds the row limit is now in English, like the rest of the log output.
+- Unloading a config entry waits for a service call that is still running before it closes the pool.
+
+### Removed
+- **Breaking:** `error.sqlstate` in the `execute` response is always `null`. The new driver does not expose the SQLSTATE code; `error.errno` and `error.message` are unchanged.
+
 ## [1.9.0] - 2026-08-08
 
 ### Added
@@ -31,5 +51,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - An unhandled `UnboundLocalError` on `_cursor` when a query failed before the cursor could be created (e.g. a dropped database connection), which masked the underlying error.
 
+[2.0.0]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/tag/v2.0.0
 [1.9.0]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/tag/v1.9.0
 [1.8.0]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/tag/v1.8.0

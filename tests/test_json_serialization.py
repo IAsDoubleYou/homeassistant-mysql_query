@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -22,6 +21,7 @@ from custom_components.mysql_query.const import (
     DOMAIN,
     SERVICE_EXECUTE,
 )
+from tests.conftest import FakeConnection, FakeCursor, FakePool, patch_create_pool
 
 ENTRY_DATA = {
     CONF_MYSQL_HOST: "localhost",
@@ -116,29 +116,22 @@ async def test_execute_service_response_is_json_serializable(
     hass: HomeAssistant,
 ) -> None:
     """A SELECT with MySQL-native types yields a serialisable service response."""
-    cursor = MagicMock(name="cursor")
-    cursor.with_rows = True
-    cursor.column_names = ["price", "created", "duration", "payload"]
-    cursor.fetchmany.return_value = [
-        {
-            "price": Decimal("19.99"),
-            "created": date(2026, 8, 8),
-            "duration": timedelta(hours=1, minutes=30),
-            "payload": b"\x00\x01",
-        }
-    ]
-    cursor.fetchone.return_value = None
-    cursor.rowcount = 1
-    cursor.lastrowid = 0
-    cursor.statement = "SELECT * FROM orders"
-
-    cnx = MagicMock(name="MySQLConnection")
-    cnx.is_connected.return_value = True
-    cnx.cursor.return_value = cursor
+    cursor = FakeCursor(
+        description=[("price",), ("created",), ("duration",), ("payload",)],
+        rows=[
+            {
+                "price": Decimal("19.99"),
+                "created": date(2026, 8, 8),
+                "duration": timedelta(hours=1, minutes=30),
+                "payload": b"\x00\x01",
+            }
+        ],
+        rowcount=1,
+    )
 
     entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
     entry.add_to_hass(hass)
-    with patch("mysql.connector.connect", return_value=cnx):
+    with patch_create_pool(FakePool(FakeConnection(cursor))):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
