@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.0] - 2026-08-08
+## [2.0.0] - 2026-08-09
 
 ### Added
 - An `aiomysql` connection pool per config entry. Connections stay open between service calls instead of being opened and closed per query, are recycled after an hour, and are checked with a ping before every statement so a connection the server dropped while idle is transparently rebuilt.
