@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-08-10
+
+### Fixed
+- `hacs.json` now sets `zip_release`, so HACS actually uses the release zip asset. Without that key HACS ignores `filename` altogether (`if self.repository_manifest.zip_release and self.repository_manifest.filename:`) and falls back to fetching every file of the integration separately through the GitHub API, which is slower and burns through the anonymous API rate limit faster.
+
+### Added
+- A `hacs` workflow running the official `hacs/action` validation, alongside the existing hassfest validation. This checks the repository the same way HACS itself does, so a mistake in `hacs.json` fails CI instead of surfacing after a release.
+
 ## [2.0.0] - 2026-08-09
 
 ### Added
@@ -51,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - An unhandled `UnboundLocalError` on `_cursor` when a query failed before the cursor could be created (e.g. a dropped database connection), which masked the underlying error.
 
+[2.0.1]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/tag/v2.0.1
 [2.0.0]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/tag/v2.0.0
 [1.9.0]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/tag/v1.9.0
 [1.8.0]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/tag/v1.8.0
