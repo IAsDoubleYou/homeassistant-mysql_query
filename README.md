@@ -12,6 +12,7 @@ A Home Assistant custom component that provides ```Responding services``` to exe
 
 - **UI Configuration**: Modern setup and management through the Home Assistant Integrations page (Config Flow).
 - **Two Service Modes**: Choose between a simple result list (```query```) or an extended metadata response (```execute```).
+- **Parameterized queries**: pass values separately with ```values``` and ```%s``` placeholders, so the database escapes them for you and templates keep their data type.
 - **Stability Protection**: Built-in row limiting to prevent Home Assistant from hanging on large result sets.
 - Support for all SQL query types (SELECT, INSERT, UPDATE, DELETE, etc.).
 - **Multiple database support**: Configure multiple connections via UI and select them in service calls.
@@ -159,15 +160,105 @@ The integration registers two services. Both are **responding services**: they r
 | ```mysql_query.query``` | Reading data (SELECT) with the least amount of ceremony. | Only the list of rows, under the key ```result```. |
 | ```mysql_query.execute``` | Everything, and especially writes (INSERT/UPDATE/DELETE/CREATE/DROP). | The rows plus full metadata: row counts, generated id, timing and errors. |
 
-Both services accept exactly the same three fields:
+Both services accept exactly the same four fields:
 
 | Field | Required | Description |
 | :--- | :--- | :--- |
 | ```query``` | Yes | The SQL statement to execute. |
+| ```values``` | No | List of values for the ```%s``` placeholders in ```query```, in the order the placeholders appear — see [Parameterized queries](#parameterized-queries-with-values). |
 | ```db4query``` | No | Run this single statement against a different database **on the same server**, instead of the configured default database. |
 | ```config_entry``` | No | The id of the connection to use when you have configured more than one. If omitted, the first configured connection is used. |
 
 > **Note:** There is no per-call row limit field. The row limit is a property of the connection (```mysql_row_limit```) — see [Example 1c](#example-1c-controlling-how-many-rows-come-back).
+
+### Parameterized queries with ```values```
+
+```values``` is optional. Leave it out and the statement is sent exactly as it always was, so every existing automation keeps working unchanged.
+
+When you do use it, write a ```%s``` placeholder in the statement for each value and list the values in the same order. The values then travel to MySQL separately from the statement, and the driver quotes and escapes each one according to its type. A quote, a semicolon or a stray backslash in your data can no longer change what the statement does:
+
+```yaml
+actions:
+  - action: mysql_query.execute
+    data:
+      query: >-
+        INSERT INTO ha_measurements (entity_id, value, measured_at)
+        VALUES (%s, %s, %s)
+      values:
+        - sensor.power_consumption
+        - "{{ states('sensor.power_consumption') | float(0) }}"
+        - "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+    response_variable: insert_result
+```
+
+Note that the placeholders are **not** quoted in the SQL: writing ```VALUES ('%s')``` is wrong, because the driver adds the quotes where they are needed.
+
+```mysql_query.query``` takes the same field, which is the tidiest way to filter a SELECT on something that changes:
+
+```yaml
+actions:
+  - action: mysql_query.query
+    data:
+      query: >-
+        SELECT entity_id, state, last_updated
+        FROM states
+        WHERE entity_id = %s AND last_updated > %s
+        ORDER BY last_updated DESC
+      values:
+        - sensor.outside_temperature
+        - "{{ (now() - timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S') }}"
+    response_variable: recent_states
+```
+
+#### Templates keep their data type
+
+Every value is rendered through the Home Assistant template engine with native typing, so a template that produces a number arrives as a number and not as text. That matters for numeric and boolean columns, and it is the only way to store a real ```NULL```:
+
+| Value in ```values``` | Bound as | Python type |
+| :--- | :--- | :--- |
+| ```"{{ states('sensor.temperature') \| float }}"``` | ```21.5``` | ```float``` |
+| ```"{{ now().year }}"``` | ```2026``` | ```int``` |
+| ```"{{ is_state('light.kitchen', 'on') }}"``` | ```1``` | ```bool``` |
+| ```"{{ none }}"``` | ```NULL``` | ```None``` |
+| ```"sensor.kitchen"``` | ```'sensor.kitchen'``` | ```str``` |
+| ```42``` | ```42``` | ```int``` |
+
+A plain value without ```{{ ... }}``` is passed through untouched and is never reinterpreted: ```"42"``` stays the string ```"42"``` and a phone number like ```"0612345678"``` keeps its leading zero.
+
+#### One placeholder, one value
+
+A ```%s``` always stands for exactly one value, never for a list. So ```WHERE id IN (%s)``` with a list does not work — write one placeholder per value instead:
+
+```yaml
+      query: "SELECT name FROM devices WHERE id IN (%s, %s, %s)"
+      values: [1, 2, 3]
+```
+
+Only values can be parameterized, not identifiers. Table names, column names and SQL keywords must stay in the statement itself; ```SELECT %s FROM %s``` is not valid SQL. To switch database, use ```db4query```.
+
+The number of placeholders and the number of values must match. If they do not, MySQL rejects the statement and you get a normal query error back.
+
+#### Percent signs in a parameterized statement
+
+As soon as you pass ```values```, the ```%``` character becomes special in the statement. A literal percent sign then has to be doubled:
+
+```yaml
+      # Wrong: the % of the LIKE pattern is read as a placeholder
+      query: "SELECT * FROM devices WHERE name LIKE '%kitchen%' AND active = %s"
+
+      # Correct: double the literal percent signs
+      query: "SELECT * FROM devices WHERE name LIKE '%%kitchen%%' AND active = %s"
+
+      # Better: pass the whole pattern as a value
+      query: "SELECT * FROM devices WHERE name LIKE %s AND active = %s"
+      values: ["%kitchen%", 1]
+```
+
+This only applies when ```values``` is present. Without it, nothing in the statement is interpreted and ```LIKE '%kitchen%'``` works as it always did.
+
+#### Errors in a value
+
+A template that fails (a division by zero, a filter on a value that is not there) is treated like any other failure of the call: ```mysql_query.query``` raises and stops the automation, while ```mysql_query.execute``` returns ```succeeded: false``` with the details in ```error```. The statement is not sent to the database in that case.
 
 ### 1. Service: ```mysql_query.query``` (Legacy/Simple)
 
@@ -412,11 +503,11 @@ actions:
     data:
       query: >-
         INSERT INTO ha_measurements (entity_id, value, measured_at)
-        VALUES (
-          'sensor.power_consumption',
-          {{ states('sensor.power_consumption') | float(0) }},
-          '{{ now().strftime("%Y-%m-%d %H:%M:%S") }}'
-        )
+        VALUES (%s, %s, %s)
+      values:
+        - sensor.power_consumption
+        - "{{ states('sensor.power_consumption') | float(0) }}"
+        - "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
     response_variable: insert_result
 
   - condition: template
@@ -431,7 +522,7 @@ mode: single
 
 After this call ```insert_result.rows_affected``` is ```1``` and ```insert_result.generated_id``` holds the ```AUTO_INCREMENT``` id of the new row.
 
-⚠️ **Templating and SQL injection**: statements are sent to the server as plain text — the integration does not support bound parameters. Only interpolate values you control, and be careful with free-form text (such as an attribute a user can edit), because a single quote in the value will break or alter your statement. Where possible, cast to a number (```| float(0)```, ```| int(0)```) as shown above.
+⚠️ **Templating and SQL injection**: prefer ```values``` over building the statement with templates, as shown above. A value passed through ```values``` is escaped by the driver, so a single quote in free-form text (a device name, a note, an attribute a user can edit) cannot break or alter your statement. When you do interpolate a template straight into the ```query``` string, only do so with values you control, and cast to a number (```| float(0)```, ```| int(0)```) where possible.
 
 #### Example 2b: Updating a row and checking how many rows changed
 
@@ -534,6 +625,7 @@ before they reach your automation:
 | :--- | :--- | :--- |
 | Statement succeeds | Returns ```result``` | Returns full metadata, ```succeeded: true``` |
 | SQL error (syntax, permissions, …) | Raises; the automation stops | Returns ```succeeded: false``` and fills ```error``` |
+| Failing template in ```values``` | Raises; the statement is not sent | Returns ```succeeded: false```; the statement is not sent |
 | Connection dropped | Reconnects automatically, then behaves as above | Reconnects automatically, then behaves as above |
 | No free pooled connection within the connect timeout | Raises | Returns ```succeeded: false``` and fills ```error``` |
 | No connection configured | Raises | Raises |
@@ -548,12 +640,12 @@ before they reach your automation:
 
 See [CHANGELOG.md](CHANGELOG.md) for a full list of changes per version.
 
-[hacs_shield]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge
+[hacs_shield]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=flat-square
 [hacs]: https://github.com/hacs/integration
 [latest_release]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/latest
-[releases_shield]: https://img.shields.io/github/v/release/IAsDoubleYou/homeassistant-mysql_query?style=for-the-badge
+[releases_shield]: https://img.shields.io/github/v/release/IAsDoubleYou/homeassistant-mysql_query?style=flat-square
 [releases]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/
-[downloads_total_shield]: https://img.shields.io/github/downloads/IAsDoubleYou/homeassistant-mysql_query/total?style=for-the-badge
-[downloads_latest_shield]: https://img.shields.io/github/downloads/IAsDoubleYou/homeassistant-mysql_query/latest/total?style=for-the-badge
-[community_forum_shield]: https://img.shields.io/static/v1.svg?label=%20&message=Forum&style=for-the-badge&color=41bdf5&logo=HomeAssistant&logoColor=white
+[downloads_total_shield]: https://img.shields.io/github/downloads/IAsDoubleYou/homeassistant-mysql_query/total?style=flat-square
+[downloads_latest_shield]: https://img.shields.io/github/downloads/IAsDoubleYou/homeassistant-mysql_query/latest/total?style=flat-square
+[community_forum_shield]: https://img.shields.io/static/v1.svg?label=%20&message=Forum&style=flat-square&color=41bdf5&logo=HomeAssistant&logoColor=white
 [community_forum]: https://community.home-assistant.io/t/mysql-query/734346

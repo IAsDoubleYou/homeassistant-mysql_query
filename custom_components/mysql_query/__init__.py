@@ -5,7 +5,7 @@ import asyncio
 import logging
 import math
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time as dt_time, timedelta
 from decimal import Decimal
@@ -15,7 +15,8 @@ import aiomysql
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, TemplateError
+from homeassistant.helpers.template import Template
 from homeassistant.helpers.typing import ConfigType
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
@@ -25,6 +26,7 @@ from .const import (
     SERVICE_QUERY,
     SERVICE_EXECUTE,
     ATTR_QUERY,
+    ATTR_VALUES,
     ATTR_DB4QUERY,
     ATTR_CONFIG_ENTRY,
     CONF_MYSQL_DB,
@@ -43,6 +45,13 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 SERVICE_SCHEMA: Final = vol.Schema(
     {
         vol.Required(ATTR_QUERY): cv.string,
+        # Values bound to the %s placeholders of a parameterized query. Only
+        # scalars are accepted: those are the types MySQL can bind to a single
+        # placeholder. Strings are allowed to still be templates here, because
+        # a call made straight through the API arrives unrendered.
+        vol.Optional(ATTR_VALUES): vol.All(
+            cv.ensure_list, [vol.Any(None, bool, int, float, str)]
+        ),
         vol.Optional(ATTR_DB4QUERY): cv.string,
         vol.Optional(ATTR_CONFIG_ENTRY): cv.string,
     }
@@ -141,12 +150,61 @@ def to_json_serializable(value: Any) -> Any:
     return str(value)
 
 
+def render_value(hass: HomeAssistant, value: Any) -> Any:
+    """Render a single placeholder value, keeping its native Python type.
+
+    A call from an automation arrives with its templates already rendered, but
+    one made through the API or the developer tools does not, so render them
+    here as well. Rendering is native (``parse_result=True``) so a template
+    that yields a number, a boolean or none is bound as an int, float, bool or
+    NULL instead of as text.
+
+    Literal strings are handed to MySQL untouched: parsing those as well would
+    turn a value like "1,2" into a tuple and "42" into an int, which would
+    change what ends up in the database.
+    """
+    if not isinstance(value, str):
+        return value
+
+    template = Template(value, hass)
+    if template.is_static:
+        return value
+
+    try:
+        return template.async_render(parse_result=True)
+    except TemplateError as err:
+        raise HomeAssistantError(f"Invalid template in values: {err}") from err
+
+
+def render_values(
+    hass: HomeAssistant, values: Sequence[Any] | None
+) -> tuple[Any, ...] | None:
+    """Render the placeholder values of a parameterized query.
+
+    Returns None when there is nothing to bind. That is not the same as an
+    empty tuple: the driver only interpolates the statement when the arguments
+    are not None, so an empty tuple would break a plain query that contains a
+    literal percent sign, such as LIKE '%text%'.
+    """
+    if not values:
+        return None
+
+    return tuple(render_value(hass, value) for value in values)
+
+
 async def _async_execute_statement(
-    conn: aiomysql.Connection, query: str, row_limit: int, database: str | None
+    conn: aiomysql.Connection,
+    query: str,
+    row_limit: int,
+    database: str | None,
+    values: Sequence[Any] | None = None,
 ) -> QueryResult:
     """Execute one statement on an open connection and collect its result."""
     async with conn.cursor(aiomysql.DictCursor) as cursor:
-        await cursor.execute(query)
+        # Passing the values to the driver keeps them out of the statement
+        # itself: it escapes and quotes them per type, so the query cannot be
+        # rewritten by whatever they contain.
+        await cursor.execute(query, values)
 
         res_list: list[dict[str, Any]] = []
         cols: list[str] = []
@@ -192,7 +250,11 @@ async def _async_restore_database(conn: aiomysql.Connection, database: str) -> N
 
 
 async def _async_run_statement(
-    instance: MySQLInstance, query: str, db4query: str | None, row_limit: int
+    instance: MySQLInstance,
+    query: str,
+    db4query: str | None,
+    row_limit: int,
+    values: Sequence[Any] | None = None,
 ) -> QueryResult:
     """Run a statement on a connection borrowed from the pool."""
     default_db = instance.config.get(CONF_MYSQL_DB)
@@ -216,7 +278,7 @@ async def _async_run_statement(
             await conn.select_db(db4query)
         try:
             return await _async_execute_statement(
-                conn, query, row_limit, db4query or default_db
+                conn, query, row_limit, db4query or default_db, values
             )
         finally:
             if switch_db:
@@ -258,6 +320,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def async_handle_service(call: ServiceCall) -> ServiceResponse:
         """Handle service calls with instance selection and row limiting."""
         _query = call.data[ATTR_QUERY]
+        _values = call.data.get(ATTR_VALUES)
         _db4query = call.data.get(ATTR_DB4QUERY)
         target_entry_id = call.data.get(ATTR_CONFIG_ENTRY)
 
@@ -286,13 +349,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         }
 
         try:
+            # Rendering inside the try keeps a broken template on the same
+            # error path as a broken statement: reported in the response for
+            # execute, raised for query.
+            rendered_values = render_values(hass, _values)
+
             # Serialise the calls on this entry: without the lock two service
             # calls would push their statements onto the same connection at
             # the same time and read each other's results.
             async with instance.lock:
                 start_time = time.perf_counter()
                 db_output = await _async_run_statement(
-                    instance, _query, _db4query, row_limit
+                    instance, _query, _db4query, row_limit, rendered_values
                 )
                 execution_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
 

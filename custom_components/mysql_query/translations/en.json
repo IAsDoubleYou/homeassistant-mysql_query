@@ -56,6 +56,10 @@
                     "name": "Query",
                     "description": "The SQL query to execute."
                 },
+                "values": {
+                    "name": "Values",
+                    "description": "Optional list of values for the %s placeholders in the query, in the order the placeholders appear. Templates are rendered with their native type."
+                },
                 "db4query": {
                     "name": "Database for query",
                     "description": "Optionally override the database name for this specific query."
@@ -73,6 +77,10 @@
                 "query": {
                     "name": "Query",
                     "description": "The SQL query to execute."
+                },
+                "values": {
+                    "name": "Values",
+                    "description": "Optional list of values for the %s placeholders in the query, in the order the placeholders appear. Templates are rendered with their native type."
                 },
                 "db4query": {
                     "name": "Database for query",

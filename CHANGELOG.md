@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-08-12
+
+### Added
+- An optional `values` field on both `mysql_query.query` and `mysql_query.execute`, for parameterized queries. Write a `%s` placeholder in the statement for every value and pass the values as a list; they are handed to the driver separately from the statement, which quotes and escapes each one according to its type. A quote, a semicolon or a backslash in the data can no longer change what the statement does. One placeholder always stands for exactly one value: lists are not expanded, and identifiers (table and column names) still cannot be parameterized.
+- Native template rendering of the values. Each item is rendered with `parse_result=True`, so a template that yields a number, a boolean or none is bound as a Python `int`, `float`, `bool` or `None` (MySQL `NULL`) instead of as text. Literal values without `{{ ... }}` are passed through untouched, so `"42"` stays the string `"42"` and a leading zero is never lost.
+- Documentation for `values` in the README: a section covering the data-type behaviour, the one-placeholder-one-value rule, the handling of literal percent signs, and worked examples for both services.
+- Tests covering the new field: native types per item, literal values left alone, a single value accepted without a list, the schema refusing non-scalars, failing templates on both services, and the statement staying untouched when `values` is absent or empty.
+
+### Changed
+- The service schemas accept `values` as an optional list of scalars (`str`, `int`, `float`, `bool`, `None`). A single value is wrapped in a list automatically. Nested lists and mappings are refused, because MySQL binds one value per placeholder.
+- The README no longer states that the integration has no bound parameters, and the INSERT example now uses `values` instead of interpolating templates into the SQL string.
+
+### Notes
+- Fully backward compatible: without `values` the statement is sent exactly as before. Nothing in it is interpreted, so an existing query containing a literal percent sign (`LIKE '%text%'`) keeps working unchanged. When `values` *is* passed, a literal percent sign in the statement has to be doubled (`'%%text%%'`) or, better, passed as a value.
+
 ## [2.0.1] - 2026-08-10
 
 ### Fixed

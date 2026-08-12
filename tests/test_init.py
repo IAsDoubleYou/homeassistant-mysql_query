@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from aiomysql import Error as MySQLError
 import pytest
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -12,6 +13,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mysql_query.const import (
     ATTR_QUERY,
+    ATTR_VALUES,
     CONF_MYSQL_DB,
     CONF_MYSQL_HOST,
     CONF_MYSQL_PASSWORD,
@@ -109,6 +111,190 @@ async def test_query_service_returns_minimal_payload(hass: HomeAssistant) -> Non
     )
 
     assert response == {"result": [{"id": 1}]}
+
+
+async def test_execute_service_without_values_binds_nothing(
+    hass: HomeAssistant,
+) -> None:
+    """Omitting values leaves the statement untouched, percent signs included."""
+    cursor = _select_cursor(rows=[], columns=["id"])
+
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    query = "SELECT * FROM test WHERE name LIKE '%a%'"
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_EXECUTE,
+        {ATTR_QUERY: query},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert cursor.executed == [query]
+    # Not an empty tuple: the driver only interpolates when the arguments are
+    # not None, and interpolating this statement would fail on the % signs.
+    assert cursor.executed_args == [None]
+
+
+async def test_execute_service_empty_values_binds_nothing(
+    hass: HomeAssistant,
+) -> None:
+    """An empty list behaves the same as leaving values out."""
+    cursor = _select_cursor(rows=[], columns=["id"])
+
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_EXECUTE,
+        {ATTR_QUERY: "SELECT * FROM test WHERE name LIKE '%a%'", ATTR_VALUES: []},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert cursor.executed_args == [None]
+
+
+async def test_execute_service_binds_rendered_values(hass: HomeAssistant) -> None:
+    """Templates in values are rendered natively and bound as parameters."""
+    cursor = _select_cursor(rows=[], columns=["id"])
+    hass.states.async_set("sensor.temperature", "21.5")
+
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    query = "SELECT * FROM test WHERE temp = %s AND count = %s AND ok = %s AND note = %s"
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_EXECUTE,
+        {
+            ATTR_QUERY: query,
+            ATTR_VALUES: [
+                "{{ states('sensor.temperature') | float }}",
+                "{{ 1 + 1 }}",
+                "{{ 1 == 1 }}",
+                "{{ none }}",
+            ],
+        },
+        blocking=True,
+        return_response=True,
+    )
+
+    assert cursor.executed == [query]
+    values = cursor.executed_args[0]
+    assert values == (21.5, 2, True, None)
+    # Native rendering: a number must not arrive as its string form.
+    assert [type(value) for value in values] == [float, int, bool, type(None)]
+
+
+async def test_execute_service_passes_non_template_values_unchanged(
+    hass: HomeAssistant,
+) -> None:
+    """Literal values are bound as given, strings included."""
+    cursor = _select_cursor(rows=[], columns=["id"])
+
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_EXECUTE,
+        {
+            ATTR_QUERY: "SELECT * FROM test WHERE a = %s AND b = %s AND c = %s",
+            # "42" and "1,2" would become an int and a tuple if literal strings
+            # were parsed as well, so they must be left alone.
+            ATTR_VALUES: ["42", "1,2", 7],
+        },
+        blocking=True,
+        return_response=True,
+    )
+
+    assert cursor.executed_args == [("42", "1,2", 7)]
+
+
+async def test_query_service_binds_rendered_values(hass: HomeAssistant) -> None:
+    """The legacy query service accepts values as well."""
+    cursor = _select_cursor(rows=[{"id": 1}], columns=["id"])
+
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_QUERY,
+        {ATTR_QUERY: "SELECT * FROM test WHERE id = %s", ATTR_VALUES: ["{{ 1 }}"]},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert response == {"result": [{"id": 1}]}
+    assert cursor.executed_args == [(1,)]
+
+
+async def test_execute_service_single_value_is_wrapped_in_a_list(
+    hass: HomeAssistant,
+) -> None:
+    """A lone value is accepted and bound as a one-element parameter set."""
+    cursor = _select_cursor(rows=[], columns=["id"])
+
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_EXECUTE,
+        {ATTR_QUERY: "SELECT * FROM test WHERE id = %s", ATTR_VALUES: "5"},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert cursor.executed_args == [("5",)]
+
+
+async def test_execute_service_rejects_non_scalar_values(hass: HomeAssistant) -> None:
+    """Only scalars can be bound to a placeholder, so the schema refuses more."""
+    await _setup_entry(hass, FakePool(FakeConnection(_select_cursor([], ["id"]))))
+
+    with pytest.raises(vol.Invalid):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_EXECUTE,
+            {ATTR_QUERY: "SELECT * FROM test WHERE id = %s", ATTR_VALUES: [{"a": 1}]},
+            blocking=True,
+            return_response=True,
+        )
+
+
+async def test_execute_service_broken_template_reports_error(
+    hass: HomeAssistant,
+) -> None:
+    """A failing template is reported like any other execute failure."""
+    cursor = _select_cursor(rows=[], columns=["id"])
+
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_EXECUTE,
+        {ATTR_QUERY: "SELECT * FROM test WHERE id = %s", ATTR_VALUES: ["{{ 1 / 0 }}"]},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert response["succeeded"] is False
+    assert "template" in response["error"]["message"].lower()
+    # The statement never reached the database.
+    assert cursor.executed == []
+
+
+async def test_query_service_broken_template_raises(hass: HomeAssistant) -> None:
+    """The legacy query service raises on a failing template."""
+    await _setup_entry(hass, FakePool(FakeConnection(_select_cursor([], ["id"]))))
+
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_QUERY,
+            {ATTR_QUERY: "SELECT * FROM test WHERE id = %s", ATTR_VALUES: ["{{ 1 / 0 }}"]},
+            blocking=True,
+            return_response=True,
+        )
 
 
 async def test_execute_service_insert_reports_affected_rows(

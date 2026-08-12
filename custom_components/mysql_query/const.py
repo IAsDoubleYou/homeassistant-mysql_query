@@ -8,6 +8,7 @@ SERVICE_EXECUTE = "execute"
 
 # Field names / Attributes (Matches the imports in __init__.py)
 ATTR_QUERY = "query"
+ATTR_VALUES = "values"
 ATTR_DB4QUERY = "db4query"
 ATTR_CONFIG_ENTRY = "config_entry"
 

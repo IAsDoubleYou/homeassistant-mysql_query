@@ -56,6 +56,10 @@
                     "name": "Query",
                     "description": "De SQL-query die uitgevoerd moet worden."
                 },
+                "values": {
+                    "name": "Waarden",
+                    "description": "Optionele lijst met waarden voor de %s-plaatshouders in de query, in de volgorde waarin de plaatshouders voorkomen. Templates behouden hun eigen datatype."
+                },
                 "db4query": {
                     "name": "Database voor query",
                     "description": "Overschrijf optioneel de databasenaam voor deze specifieke query."
@@ -73,6 +77,10 @@
                 "query": {
                     "name": "Query",
                     "description": "De SQL-query die uitgevoerd moet worden."
+                },
+                "values": {
+                    "name": "Waarden",
+                    "description": "Optionele lijst met waarden voor de %s-plaatshouders in de query, in de volgorde waarin de plaatshouders voorkomen. Templates behouden hun eigen datatype."
                 },
                 "db4query": {
                     "name": "Database voor query",

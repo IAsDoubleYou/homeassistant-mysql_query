@@ -75,11 +75,15 @@ class FakeCursor:
         self.error = error
         self.on_execute = on_execute
         self.executed: list[str] = []
+        # The values bound to each statement, so a test can assert both what
+        # was sent and that nothing was bound at all (None).
+        self.executed_args: list[Any] = []
         self.closed = False
 
     async def execute(self, query: str, args: Any = None) -> None:
         """Record the statement and raise the configured error, if any."""
         self.executed.append(query)
+        self.executed_args.append(args)
         if self.on_execute is not None:
             await self.on_execute(query)
         if self.error is not None:
