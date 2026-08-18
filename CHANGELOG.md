@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2026-08-18
+
+### Added
+- Brand images shipped with the integration, in `custom_components/mysql_query/brand/`: `icon.png` (256x256), `icon@2x.png` (512x512), `logo.png` (256x64) and `logo@2x.png` (512x128). Home Assistant 2026.3.0 and later read these directly and give them priority over the brands CDN, so the integration now shows its own icon and logo in the UI. Older Home Assistant versions ignore the folder and are unaffected.
+- `scripts/build_brands.py`, which generates those images from the raw artwork. It keys out the background with a flood fill from the image border, so dark elements inside the artwork are preserved, and typesets the wordmark.
+
+### Changed
+- Releases no longer ship a `homeassistant-mysql_query.zip` asset. `zip_release` and `filename` are gone from `hacs.json`, so HACS installs the integration from `custom_components/mysql_query/` through the GitHub API. Existing installations update normally; no action is required.
+
+### Removed
+- The per-release downloads badge in the README. Without a release asset its count would always read zero; the all-releases badge remains.
+
 ## [2.1.0] - 2026-08-12
 
 ### Added
@@ -75,6 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - An unhandled `UnboundLocalError` on `_cursor` when a query failed before the cursor could be created (e.g. a dropped database connection), which masked the underlying error.
 
+[2.1.1]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/tag/v2.1.1
+[2.1.0]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/tag/v2.1.0
 [2.0.1]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/tag/v2.0.1
 [2.0.0]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/tag/v2.0.0
 [1.9.0]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/tag/v1.9.0
