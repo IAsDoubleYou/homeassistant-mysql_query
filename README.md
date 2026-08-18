@@ -2,7 +2,6 @@
 
 [![HACS Custom][hacs_shield]][hacs]
 [![GitHub Latest Release][releases_shield]][latest_release]
-[![GitHub Downloads (latest Release)][downloads_latest_shield]][latest_release]
 [![GitHub All Releases][downloads_total_shield]][releases]
 [![Community Forum][community_forum_shield]][community_forum]
 
@@ -646,6 +645,5 @@ See [CHANGELOG.md](CHANGELOG.md) for a full list of changes per version.
 [releases_shield]: https://img.shields.io/github/v/release/IAsDoubleYou/homeassistant-mysql_query?style=flat-square
 [releases]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/
 [downloads_total_shield]: https://img.shields.io/github/downloads/IAsDoubleYou/homeassistant-mysql_query/total?style=flat-square
-[downloads_latest_shield]: https://img.shields.io/github/downloads/IAsDoubleYou/homeassistant-mysql_query/latest/total?style=flat-square
 [community_forum_shield]: https://img.shields.io/static/v1.svg?label=%20&message=Forum&style=flat-square&color=41bdf5&logo=HomeAssistant&logoColor=white
 [community_forum]: https://community.home-assistant.io/t/mysql-query/734346
