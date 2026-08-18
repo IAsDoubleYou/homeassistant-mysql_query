@@ -15,7 +15,3 @@ jobs:
         uses: "hacs/action@main"
         with:
           category: "integration"
-          # No brand assets yet, and the integration is not in home-assistant/brands.
-          # Only relevant for inclusion in the HACS default store, not for installing
-          # this repository as a custom repository.
-          ignore: "brands"
