@@ -33,6 +33,10 @@ This release is about the configuration screens telling you what went wrong, and
 - The README claimed Home Assistant 2023.7 or newer, dating from when the response-data services were the newest thing used. It now matches the declared minimum.
 - The fallback error raised by a `query` call is chained to the error it came from, like the two handlers next to it already were.
 
+### Security
+
+- The `aiomysql` requirement moves from 0.2.0 to 0.3.2, which fixes [CVE-2025-62611](https://github.com/advisories/GHSA-r397-ff8c-wv2g) (high, CVSS 8.2). MySQL lets a server ask the client for a local file through `LOAD DATA LOCAL INFILE`, and the client is supposed to refuse when `local_infile` is off. Up to and including 0.2.0 aiomysql never made that check, so a rogue or compromised database server could ask for any file the Home Assistant process can read, including `secrets.yaml` and the tokens under `.storage/`. This integration never enables `local_infile` and never issues such a statement, but that is not what protects against it: the setting was ignored, and the request comes from the server without anything being asked of it. The fix is in the driver, which now refuses the request, so upgrading the requirement is the whole remedy. Home Assistant installs the new version on the first start after the upgrade.
+
 ## [2.1.1] - 2026-08-18
 
 ### Added
