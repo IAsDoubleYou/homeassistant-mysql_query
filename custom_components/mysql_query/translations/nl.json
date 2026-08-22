@@ -19,9 +19,10 @@
             }
         },
         "error": {
-            "cannot_connect": "Verbinden is mislukt, controleer je instellingen.",
-            "invalid_auth": "Ongeldige authenticatie.",
-            "unknown": "Er is een onverwachte fout opgetreden."
+            "cannot_connect": "Verbinden met de server is mislukt. Controleer de host, de poort en je firewall. Details: {error}",
+            "invalid_auth": "De server weigerde de gebruikersnaam of het wachtwoord.",
+            "unknown_database": "De database bestaat niet, of deze gebruiker heeft er geen toegang toe.",
+            "unknown": "Onverwachte fout bij het verbinden: {error}"
         },
         "abort": {
             "already_configured": "Deze verbinding is al geconfigureerd.",
@@ -45,6 +46,12 @@
                     "mysql_row_limit": "Rijlimiet (veiligheidsgrens)"
                 }
             }
+        },
+        "error": {
+            "cannot_connect": "Verbinden met de server is mislukt. Controleer de host, de poort en je firewall. Details: {error}",
+            "invalid_auth": "De server weigerde de gebruikersnaam of het wachtwoord.",
+            "unknown_database": "De database bestaat niet, of deze gebruiker heeft er geen toegang toe.",
+            "unknown": "Onverwachte fout bij het verbinden: {error}"
         }
     },
     "services": {

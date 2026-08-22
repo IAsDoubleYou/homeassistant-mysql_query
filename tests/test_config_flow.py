@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
 from aiomysql import Error as MySQLError
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from homeassistant import config_entries
@@ -73,8 +74,15 @@ async def test_user_flow_success(hass: HomeAssistant) -> None:
 
 
 async def test_user_flow_cannot_connect(hass: HomeAssistant) -> None:
-    """A MySQL connection error surfaces as a form error."""
-    with patch_driver(side_effect=MySQLError(1045, "Access denied")):
+    """An unreachable server is reported on the form, with the reason.
+
+    A refused connection, a timeout and a rejected charset all end up here
+    and each needs a different fix, so the driver message is shown next to
+    the generic advice about the host and the firewall.
+    """
+    with patch_driver(
+        side_effect=MySQLError(2003, "Can't connect to MySQL server on 'db.local'")
+    ):
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
         )
@@ -84,6 +92,9 @@ async def test_user_flow_cannot_connect(hass: HomeAssistant) -> None:
 
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "cannot_connect"}
+    assert (
+        "Can't connect to MySQL server" in result["description_placeholders"]["error"]
+    )
 
 
 async def test_user_flow_unknown_error(hass: HomeAssistant) -> None:
@@ -123,13 +134,14 @@ async def test_options_flow_updates_entry(hass: HomeAssistant) -> None:
     )
     entry.add_to_hass(hass)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert result["type"] is FlowResultType.FORM
+    with patch_driver():
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        assert result["type"] is FlowResultType.FORM
 
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {**USER_INPUT, CONF_ROW_LIMIT: 500}
-    )
-    await hass.async_block_till_done()
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {**USER_INPUT, CONF_ROW_LIMIT: 500}
+        )
+        await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.data[CONF_ROW_LIMIT] == 500
@@ -147,12 +159,13 @@ async def test_options_flow_saves_the_submitted_settings(hass: HomeAssistant) ->
     )
     entry.add_to_hass(hass)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {**USER_INPUT, CONF_MYSQL_DB: "other_db", CONF_ROW_LIMIT: 500},
-    )
-    await hass.async_block_till_done()
+    with patch_driver():
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {**USER_INPUT, CONF_MYSQL_DB: "other_db", CONF_ROW_LIMIT: 500},
+        )
+        await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.data[CONF_MYSQL_DB] == "other_db"
@@ -167,11 +180,12 @@ async def test_options_flow_invalid_row_limit_falls_back_to_default(
     entry = MockConfigEntry(domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: 500})
     entry.add_to_hass(hass)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {**USER_INPUT, CONF_ROW_LIMIT: 0}
-    )
-    await hass.async_block_till_done()
+    with patch_driver():
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {**USER_INPUT, CONF_ROW_LIMIT: 0}
+        )
+        await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.data[CONF_ROW_LIMIT] == DEFAULT_ROW_LIMIT
@@ -254,3 +268,174 @@ async def test_import_flow_aborts_when_already_configured(
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
+
+
+async def test_user_flow_invalid_auth(hass: HomeAssistant) -> None:
+    """Wrong credentials are reported as such, without the driver message.
+
+    "Access denied for user ..." says nothing the form does not already say,
+    so the cause is named instead of repeated verbatim.
+    """
+    with patch_driver(
+        side_effect=MySQLError(
+            1045, "Access denied for user 'test_user'@'localhost' (using password: YES)"
+        )
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], USER_INPUT
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "invalid_auth"}
+
+
+@pytest.mark.parametrize("errno", [1044, 1049])
+async def test_user_flow_unknown_database(hass: HomeAssistant, errno: int) -> None:
+    """A missing database and a denied one are reported as such."""
+    with patch_driver(side_effect=MySQLError(errno, "Unknown database 'test_db'")):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], USER_INPUT
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "unknown_database"}
+
+
+async def test_user_flow_shows_the_reason_for_an_unknown_error(
+    hass: HomeAssistant,
+) -> None:
+    """An unexpected exception carries its message onto the form."""
+    with patch_driver(side_effect=RuntimeError("something odd")):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], USER_INPUT
+        )
+
+    assert result["errors"] == {"base": "unknown"}
+    assert result["description_placeholders"]["error"] == "something odd"
+
+
+async def test_user_flow_long_error_is_shortened(hass: HomeAssistant) -> None:
+    """A driver message that would fill the dialog is cut off."""
+    with patch_driver(side_effect=MySQLError(2003, "x" * 500)):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], USER_INPUT
+        )
+
+    detail = result["description_placeholders"]["error"]
+    assert detail.endswith("...")
+    assert len(detail) == 258
+
+
+async def test_user_flow_error_without_message(hass: HomeAssistant) -> None:
+    """An exception carrying no message falls back to its type."""
+    with patch_driver(side_effect=RuntimeError()):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], USER_INPUT
+        )
+
+    assert result["description_placeholders"]["error"] == "RuntimeError"
+
+
+async def test_user_flow_recovers_after_an_error(hass: HomeAssistant) -> None:
+    """Correcting the settings after a failure still creates the entry."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    with patch_driver(side_effect=MySQLError(1045, "Access denied")):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], USER_INPUT
+        )
+    assert result["errors"] == {"base": "invalid_auth"}
+
+    with patch_driver():
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], USER_INPUT
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_options_flow_rejects_settings_it_cannot_connect_with(
+    hass: HomeAssistant,
+) -> None:
+    """Settings that cannot reach the database are not saved.
+
+    Without the check they would be stored anyway, after which the reload
+    fails and the reason is only visible in the log.
+    """
+    data = {**USER_INPUT, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT}
+    entry = MockConfigEntry(domain=DOMAIN, data=data)
+    entry.add_to_hass(hass)
+
+    with patch_driver(side_effect=MySQLError(1045, "Access denied")):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {**USER_INPUT, CONF_MYSQL_PASSWORD: "wrong"}
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "invalid_auth"}
+    # The entry still runs on what it was configured with.
+    assert entry.data == data
+
+
+async def test_options_flow_keeps_the_submitted_values_on_the_form(
+    hass: HomeAssistant,
+) -> None:
+    """A rejected form comes back filled in, not reset to the stored settings."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT}
+    )
+    entry.add_to_hass(hass)
+
+    with patch_driver(side_effect=MySQLError(2003, "Connection refused")):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {**USER_INPUT, CONF_MYSQL_HOST: "typo.local"}
+        )
+
+    defaults = {key.schema: key.default() for key in result["data_schema"].schema}
+    assert defaults[CONF_MYSQL_HOST] == "typo.local"
+    assert "Connection refused" in result["description_placeholders"]["error"]
+
+
+async def test_options_flow_recovers_after_an_error(hass: HomeAssistant) -> None:
+    """Correcting the settings after a failure still saves them."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT}
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    with patch_driver(side_effect=MySQLError(1045, "Access denied")):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {**USER_INPUT, CONF_MYSQL_DB: "other_db"}
+        )
+    assert result["errors"] == {"base": "invalid_auth"}
+
+    with patch_driver():
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {**USER_INPUT, CONF_MYSQL_DB: "other_db"}
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.data[CONF_MYSQL_DB] == "other_db"

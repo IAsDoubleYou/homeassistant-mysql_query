@@ -19,9 +19,10 @@
             }
         },
         "error": {
-            "cannot_connect": "Failed to connect, please check your settings.",
-            "invalid_auth": "Invalid authentication.",
-            "unknown": "Unexpected error occurred."
+            "cannot_connect": "Failed to connect to the server. Check the host, the port and your firewall. Details: {error}",
+            "invalid_auth": "The server refused the username or password.",
+            "unknown_database": "The database does not exist, or this user has no access to it.",
+            "unknown": "Unexpected error while connecting: {error}"
         },
         "abort": {
             "already_configured": "This connection is already configured.",
@@ -45,6 +46,12 @@
                     "mysql_row_limit": "Row Limit (Safety Cap)"
                 }
             }
+        },
+        "error": {
+            "cannot_connect": "Failed to connect to the server. Check the host, the port and your firewall. Details: {error}",
+            "invalid_auth": "The server refused the username or password.",
+            "unknown_database": "The database does not exist, or this user has no access to it.",
+            "unknown": "Unexpected error while connecting: {error}"
         }
     },
     "services": {
