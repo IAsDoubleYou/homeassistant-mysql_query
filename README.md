@@ -26,7 +26,7 @@ A Home Assistant custom component that provides ```Responding services``` to exe
 
 ## Requirements
 
-- Home Assistant version 2023.7 or newer (due to Responding services functionality)
+- Home Assistant version 2025.3.0 or newer. HACS enforces this, so an older installation is not offered the update. The integration releases its shared resources when the last connection is unloaded, which relies on the config entry states introduced in that release.
 - The ```aiomysql``` driver, which Home Assistant installs automatically from ```manifest.json```
 
 ## Installation

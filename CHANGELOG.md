@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- `hacs.json` now declares a minimum Home Assistant version of 2025.3.0, and the README says the same. The integration already needed it: releasing the shared services when the last connection is unloaded relies on the config entry state that release sets before calling `async_unload_entry`. Without the declaration HACS offered the update to installations where that cleanup would silently not run. The README still claimed 2023.7.
 - A `query` or `execute` call that does not name a `config_entry` now runs on the first connection in the config entry registry, an order that stays the same across reloads. It used to run on whichever connection was set up first, which meant that reloading that connection silently moved later calls to another one. This only matters with two or more connections configured and calls that leave `config_entry` empty; with a single connection nothing changes.
 
 ## [2.1.1] - 2026-08-18
