@@ -341,3 +341,77 @@ async def test_unload_waits_for_a_running_call(hass: HomeAssistant) -> None:
 
     assert pool_closed_during_call == [False]
     assert pool.closed
+
+
+async def test_connection_is_returned_after_a_failed_statement(
+    hass: HomeAssistant,
+) -> None:
+    """A statement the server rejects still hands its connection back.
+
+    Every borrowed connection has to reach pool.release(), on the error path
+    as much as on the happy one. A connection that is not returned stays
+    checked out for good, and once that has happened POOL_MAX_SIZE times the
+    pool hands out nothing at all and every later call times out waiting.
+    """
+    pool = FakePool(FakeConnection(_cursor(error=MySQLError(1146, "No such table"))))
+
+    await _setup_entry(hass, pool)
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_EXECUTE,
+        {ATTR_QUERY: "SELECT * FROM nope"},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert response["succeeded"] is False
+    assert response["error"]["errno"] == 1146
+    assert pool.acquired == 1
+    assert pool.released == 1
+
+
+async def test_connection_is_returned_when_the_database_switch_fails(
+    hass: HomeAssistant,
+) -> None:
+    """A failed switch to db4query does not swallow the connection."""
+    connection = FakeConnection(
+        _cursor(), select_db_errors={"other_db": MySQLError(1044, "Denied")}
+    )
+    pool = FakePool(connection)
+
+    await _setup_entry(hass, pool)
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_EXECUTE,
+        {ATTR_QUERY: "SELECT 1", ATTR_DB4QUERY: "other_db"},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert response["succeeded"] is False
+    assert connection.selected_dbs == ["other_db"]
+    assert pool.acquired == 1
+    assert pool.released == 1
+
+
+async def test_connections_are_returned_across_repeated_failures(
+    hass: HomeAssistant,
+) -> None:
+    """Repeated failures do not drain the pool one connection at a time."""
+    pool = FakePool(FakeConnection(_cursor(error=MySQLError(1064, "Syntax error"))))
+
+    await _setup_entry(hass, pool)
+
+    for _ in range(POOL_MAX_SIZE + 1):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_EXECUTE,
+            {ATTR_QUERY: "SELECT ("},
+            blocking=True,
+            return_response=True,
+        )
+
+    assert pool.acquired == POOL_MAX_SIZE + 1
+    assert pool.released == pool.acquired

@@ -131,3 +131,128 @@ async def test_options_flow_updates_entry(hass: HomeAssistant) -> None:
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.data[CONF_ROW_LIMIT] == 500
+
+
+async def test_options_flow_saves_the_submitted_settings(hass: HomeAssistant) -> None:
+    """The submitted settings replace the data of the config entry.
+
+    The settings live in entry.data, not in entry.options, so the options
+    flow writes them through async_update_entry and creates an empty options
+    entry. An automation reading the entry keeps seeing them where they were.
+    """
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT}
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {**USER_INPUT, CONF_MYSQL_DB: "other_db", CONF_ROW_LIMIT: 500},
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.data[CONF_MYSQL_DB] == "other_db"
+    assert entry.data[CONF_ROW_LIMIT] == 500
+    assert entry.options == {}
+
+
+async def test_options_flow_invalid_row_limit_falls_back_to_default(
+    hass: HomeAssistant,
+) -> None:
+    """A row limit below one is replaced by the default before saving."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: 500}
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {**USER_INPUT, CONF_ROW_LIMIT: 0}
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.data[CONF_ROW_LIMIT] == DEFAULT_ROW_LIMIT
+
+
+async def test_options_flow_form_is_prefilled_with_current_settings(
+    hass: HomeAssistant,
+) -> None:
+    """The form opens on the settings the entry is running with."""
+    data = {**USER_INPUT, CONF_MYSQL_DB: "current_db", CONF_ROW_LIMIT: 250}
+    entry = MockConfigEntry(domain=DOMAIN, data=data)
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    assert result["type"] is FlowResultType.FORM
+    defaults = {
+        key.schema: key.default() for key in result["data_schema"].schema
+    }
+    assert defaults[CONF_MYSQL_DB] == "current_db"
+    assert defaults[CONF_MYSQL_HOST] == USER_INPUT[CONF_MYSQL_HOST]
+    assert defaults[CONF_ROW_LIMIT] == 250
+
+
+async def test_import_flow_creates_entry(hass: HomeAssistant) -> None:
+    """Settings from configuration.yaml become a config entry."""
+    with patch_driver():
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_IMPORT},
+            data=dict(USER_INPUT),
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "MySQL: localhost/test_db (Imported)"
+    assert result["data"][CONF_MYSQL_DB] == "test_db"
+
+
+async def test_import_flow_adds_the_default_row_limit(hass: HomeAssistant) -> None:
+    """A YAML section without a row limit still gets the default."""
+    with patch_driver():
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_IMPORT},
+            data=dict(USER_INPUT),
+        )
+        await hass.async_block_till_done()
+
+    assert result["data"][CONF_ROW_LIMIT] == DEFAULT_ROW_LIMIT
+
+
+async def test_import_flow_keeps_an_explicit_row_limit(hass: HomeAssistant) -> None:
+    """A row limit set in YAML is not overwritten by the default."""
+    with patch_driver():
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_IMPORT},
+            data={**USER_INPUT, CONF_ROW_LIMIT: 42},
+        )
+        await hass.async_block_till_done()
+
+    assert result["data"][CONF_ROW_LIMIT] == 42
+
+
+async def test_import_flow_aborts_when_already_configured(
+    hass: HomeAssistant,
+) -> None:
+    """Importing the same host and database twice does not duplicate it."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={**USER_INPUT, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT},
+        unique_id="localhost_test_db",
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_IMPORT},
+        data=dict(USER_INPUT),
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
