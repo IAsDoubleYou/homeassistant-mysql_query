@@ -215,7 +215,7 @@ def render_text(text: str, max_width: int, max_height: int) -> Image.Image:
         "RGBA", (right - left + 2 * pad, bottom - top + 2 * pad), (0, 0, 0, 0)
     )
     ImageDraw.Draw(layer).text(
-        (pad - left, pad - top), text, font=font, fill=TEXT_COLOR + (255,)
+        (pad - left, pad - top), text, font=font, fill=(*TEXT_COLOR, 255)
     )
     layer = trim(layer, threshold=1)
     layer = layer.resize(

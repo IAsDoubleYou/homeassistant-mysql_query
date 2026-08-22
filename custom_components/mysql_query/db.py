@@ -35,6 +35,10 @@ _LOGGER = logging.getLogger(__name__)
 # extra statements into that command.
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_]+$")
 
+# A server-side driver error carries (errno, message); a client-side one, such
+# as a refused connection, carries only the message.
+_ERRNO_MESSAGE_ARGS = 2
+
 
 def build_connection_kwargs(config: Mapping[str, Any]) -> dict[str, Any]:
     """Translate a config entry into aiomysql connection arguments."""
@@ -114,7 +118,7 @@ def error_details(err: BaseException) -> tuple[int | None, str]:
     ones such as a refused connection.
     """
     args = getattr(err, "args", ())
-    if len(args) >= 2 and isinstance(args[0], int):
+    if len(args) >= _ERRNO_MESSAGE_ARGS and isinstance(args[0], int):
         return args[0], str(args[1])
     if len(args) == 1:
         return None, str(args[0])

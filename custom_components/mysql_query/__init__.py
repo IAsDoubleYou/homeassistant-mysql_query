@@ -225,7 +225,8 @@ async def _async_execute_statement(
 
             if await cursor.fetchone():
                 _LOGGER.warning(
-                    "Query on %s truncated: the result set exceeds the limit of %s rows.",
+                    "Query on %s truncated: the result set exceeds the limit "
+                    "of %s rows.",
                     database,
                     row_limit,
                 )
@@ -307,8 +308,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up mysql_query from a config entry."""
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  # noqa: PLR0915
+    """Set up mysql_query from a config entry.
+
+    Long on purpose: the service handler is nested here so it closes over the
+    instances of this entry. Splitting it out would mean passing that state
+    around by hand for no gain in clarity.
+    """
     instances: dict[str, MySQLInstance] = hass.data.setdefault(DOMAIN, {})
     config = entry.data
 
@@ -398,9 +404,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 }
             )
 
+            # Kept inside the try, next to the response they read, rather than
+            # moved into an else block that would sit below the handlers.
             if call.service == SERVICE_QUERY:
                 return {"result": response["result"]}
-            return response
+            return response  # noqa: TRY300
 
         except aiomysql.Error as e:
             errno, message = error_details(e)
@@ -419,7 +427,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as e:
             _LOGGER.error("General Error: %s", str(e))
             if call.service == SERVICE_QUERY:
-                raise HomeAssistantError(f"Error: {e!s}")
+                raise HomeAssistantError(f"Error: {e!s}") from e
             response["error"]["message"] = str(e)
             return response
 

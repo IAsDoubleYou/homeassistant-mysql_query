@@ -57,6 +57,7 @@ ignore = [
 ]
 "scripts/*" = [
     "D103",     # A one-off build script does not need a docstring per helper
+    "E501",     # Its progress lines read better whole than split over continuations
     "INP001",   # Run directly as a file, not imported as a package
     "PLR2004",  # Image sizes and thresholds read better as literals here
     "T201",     # Printing its progress is the whole interface of the script

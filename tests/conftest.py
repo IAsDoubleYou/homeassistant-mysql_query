@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Generator, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 import socket
 import sys
 from typing import Any
@@ -42,11 +42,8 @@ if sys.platform == "win32":
 
 
 @pytest.fixture(autouse=True)
-def auto_enable_custom_integrations(
-    enable_custom_integrations: None,
-) -> Generator[None]:
+def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
     """Enable loading of custom_components/mysql_query for every test."""
-    yield
 
 
 class FakeCursor:

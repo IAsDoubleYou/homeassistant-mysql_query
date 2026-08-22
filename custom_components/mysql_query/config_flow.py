@@ -131,11 +131,15 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         _LOGGER.warning(
             "Imported mysql_query settings from configuration.yaml. "
-            "IMPORTANT: Please remove the 'mysql_query' section from your configuration.yaml "
-            "and restart Home Assistant to complete the migration."
+            "IMPORTANT: Please remove the 'mysql_query' section from your "
+            "configuration.yaml and restart Home Assistant to complete the "
+            "migration."
         )
 
-        title = f"MySQL: {import_data[CONF_MYSQL_HOST]}/{import_data[CONF_MYSQL_DB]} (Imported)"
+        title = (
+            f"MySQL: {import_data[CONF_MYSQL_HOST]}/{import_data[CONF_MYSQL_DB]} "
+            "(Imported)"
+        )
         return self.async_create_entry(title=title, data=import_data)
 
     @staticmethod
