@@ -117,15 +117,15 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> MySQLQueryOptionsFlow:
         """Create the options flow handler."""
-        return MySQLQueryOptionsFlow(config_entry)
+        return MySQLQueryOptionsFlow()
 
 
 class MySQLQueryOptionsFlow(config_entries.OptionsFlow):
     """Handle options (re-configuration) for the integration."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self._config_entry = config_entry
+    # The entry is not stored here: OptionsFlow exposes it as self.config_entry,
+    # which resolves it from the handler on every access. Keeping a reference of
+    # our own would only add a second name for the same object.
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Manage the settings via the Configure button."""
@@ -134,10 +134,10 @@ class MySQLQueryOptionsFlow(config_entries.OptionsFlow):
             if not user_input.get(CONF_ROW_LIMIT) or user_input[CONF_ROW_LIMIT] < 1:
                 user_input[CONF_ROW_LIMIT] = DEFAULT_ROW_LIMIT
                 
-            self.hass.config_entries.async_update_entry(self._config_entry, data=user_input)
+            self.hass.config_entries.async_update_entry(self.config_entry, data=user_input)
             return self.async_create_entry(title="", data={})
 
-        current_settings = dict(self._config_entry.data)
+        current_settings = dict(self.config_entry.data)
 
         return self.async_show_form(
             step_id="init",
