@@ -1,14 +1,16 @@
 """Tests for the connection pool and the per-entry concurrency lock."""
+
 from __future__ import annotations
 
 import asyncio
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from aiomysql import Error as MySQLError
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mysql_query.const import (
     ATTR_CONFIG_ENTRY,

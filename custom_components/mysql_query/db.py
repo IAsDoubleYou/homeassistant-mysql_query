@@ -1,9 +1,10 @@
 """Database plumbing shared by the config flow and the integration setup."""
+
 from __future__ import annotations
 
+from collections.abc import Mapping
 import logging
 import re
-from collections.abc import Mapping
 from typing import Any
 
 import aiomysql
@@ -48,7 +49,9 @@ def build_connection_kwargs(config: Mapping[str, Any]) -> dict[str, Any]:
     }
 
     charset = _valid_identifier(config.get(CONF_MYSQL_CHARSET), CONF_MYSQL_CHARSET)
-    collation = _valid_identifier(config.get(CONF_MYSQL_COLLATION), CONF_MYSQL_COLLATION)
+    collation = _valid_identifier(
+        config.get(CONF_MYSQL_COLLATION), CONF_MYSQL_COLLATION
+    )
 
     if charset:
         kwargs["charset"] = charset

@@ -1,4 +1,5 @@
 """Tests for the mysql_query config flow."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -6,10 +7,11 @@ from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
 from aiomysql import Error as MySQLError
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mysql_query.const import (
     CONF_MYSQL_DB,
@@ -162,9 +164,7 @@ async def test_options_flow_invalid_row_limit_falls_back_to_default(
     hass: HomeAssistant,
 ) -> None:
     """A row limit below one is replaced by the default before saving."""
-    entry = MockConfigEntry(
-        domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: 500}
-    )
+    entry = MockConfigEntry(domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: 500})
     entry.add_to_hass(hass)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
@@ -188,9 +188,7 @@ async def test_options_flow_form_is_prefilled_with_current_settings(
     result = await hass.config_entries.options.async_init(entry.entry_id)
 
     assert result["type"] is FlowResultType.FORM
-    defaults = {
-        key.schema: key.default() for key in result["data_schema"].schema
-    }
+    defaults = {key.schema: key.default() for key in result["data_schema"].schema}
     assert defaults[CONF_MYSQL_DB] == "current_db"
     assert defaults[CONF_MYSQL_HOST] == USER_INPUT[CONF_MYSQL_HOST]
     assert defaults[CONF_ROW_LIMIT] == 250

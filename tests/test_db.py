@@ -1,4 +1,5 @@
 """Tests for the shared database helpers."""
+
 from __future__ import annotations
 
 from aiomysql import Error as MySQLError
@@ -56,7 +57,7 @@ def test_build_connection_kwargs_reads_configured_values() -> None:
 
 
 def test_collation_without_charset_sets_only_the_collation() -> None:
-    """aiomysql has no collation argument, so an init_command carries it."""
+    """Aiomysql has no collation argument, so an init_command carries it."""
     kwargs = build_connection_kwargs(
         {**BASE_CONFIG, CONF_MYSQL_COLLATION: "utf8mb4_bin"}
     )

@@ -1,40 +1,46 @@
 """The MySQL Query Service integration."""
+
 from __future__ import annotations
 
 import asyncio
-import logging
-import math
-import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time as dt_time, timedelta
 from decimal import Decimal
+import logging
+import math
+import time
 from typing import Any, Final, TypedDict
 
 import aiomysql
-
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
-from homeassistant.exceptions import HomeAssistantError, TemplateError
-from homeassistant.helpers.template import Template
-from homeassistant.helpers.typing import ConfigType
-import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import (
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+)
+from homeassistant.exceptions import HomeAssistantError, TemplateError
+import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.template import Template
+from homeassistant.helpers.typing import ConfigType
+
 from .const import (
-    DOMAIN,
-    SERVICE_QUERY,
-    SERVICE_EXECUTE,
+    ATTR_CONFIG_ENTRY,
+    ATTR_DB4QUERY,
     ATTR_QUERY,
     ATTR_VALUES,
-    ATTR_DB4QUERY,
-    ATTR_CONFIG_ENTRY,
     CONF_MYSQL_DB,
     CONF_MYSQL_TIMEOUT,
     CONF_MYSQL_USERNAME,
     CONF_ROW_LIMIT,
     DEFAULT_MYSQL_TIMEOUT,
     DEFAULT_ROW_LIMIT,
+    DOMAIN,
+    SERVICE_EXECUTE,
+    SERVICE_QUERY,
 )
 from .db import async_create_pool, error_details
 
@@ -56,6 +62,7 @@ SERVICE_SCHEMA: Final = vol.Schema(
         vol.Optional(ATTR_CONFIG_ENTRY): cv.string,
     }
 )
+
 
 class QueryResult(TypedDict):
     """Result payload returned by a single executed statement."""
@@ -299,6 +306,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         )
     return True
 
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up mysql_query from a config entry."""
     instances: dict[str, MySQLInstance] = hass.data.setdefault(DOMAIN, {})
@@ -307,7 +315,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         pool = await async_create_pool(config)
     except Exception as e:
-        _LOGGER.error("Could not connect to mysql server for %s: %s", entry.title, str(e), exc_info=True)
+        _LOGGER.error(
+            "Could not connect to mysql server for %s: %s",
+            entry.title,
+            str(e),
+            exc_info=True,
+        )
         return False
 
     instances[entry.entry_id] = MySQLInstance(
@@ -341,11 +354,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             row_limit = DEFAULT_ROW_LIMIT
 
         response = {
-            "succeeded": False, "execution_time_ms": 0, "database": target_db_name,
-            "user": inst_config.get(CONF_MYSQL_USERNAME), "statement": _query,
-            "rows_found": None, "rows_returned": None, "rows_affected": None, 
-            "generated_id": None, "column_names": [],
-            "error": {"message": None, "errno": None, "sqlstate": None}, "result": []
+            "succeeded": False,
+            "execution_time_ms": 0,
+            "database": target_db_name,
+            "user": inst_config.get(CONF_MYSQL_USERNAME),
+            "statement": _query,
+            "rows_found": None,
+            "rows_returned": None,
+            "rows_affected": None,
+            "generated_id": None,
+            "column_names": [],
+            "error": {"message": None, "errno": None, "sqlstate": None},
+            "result": [],
         }
 
         try:
@@ -364,17 +384,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 )
                 execution_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
 
-            response.update({
-                "succeeded": True,
-                "result": db_output["res"],
-                "column_names": db_output["cols"],
-                "rows_found": db_output["rows_found"],
-                "rows_returned": db_output["rows_returned"],
-                "rows_affected": db_output["rows_affected"],
-                "generated_id": db_output["gen_id"],
-                "statement": db_output["statement"],
-                "execution_time_ms": execution_time_ms
-            })
+            response.update(
+                {
+                    "succeeded": True,
+                    "result": db_output["res"],
+                    "column_names": db_output["cols"],
+                    "rows_found": db_output["rows_found"],
+                    "rows_returned": db_output["rows_returned"],
+                    "rows_affected": db_output["rows_affected"],
+                    "generated_id": db_output["gen_id"],
+                    "statement": db_output["statement"],
+                    "execution_time_ms": execution_time_ms,
+                }
+            )
 
             if call.service == SERVICE_QUERY:
                 return {"result": response["result"]}
@@ -397,22 +419,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as e:
             _LOGGER.error("General Error: %s", str(e))
             if call.service == SERVICE_QUERY:
-                raise HomeAssistantError(f"Error: {str(e)}")
+                raise HomeAssistantError(f"Error: {e!s}")
             response["error"]["message"] = str(e)
             return response
 
     # The services are global, not per entry: registering them once keeps a
     # second config entry from replacing the handler of the first.
     if not hass.services.has_service(DOMAIN, SERVICE_QUERY):
-        hass.services.async_register(DOMAIN, SERVICE_QUERY, async_handle_service, schema=SERVICE_SCHEMA, supports_response=SupportsResponse.ONLY)
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_QUERY,
+            async_handle_service,
+            schema=SERVICE_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
     if not hass.services.has_service(DOMAIN, SERVICE_EXECUTE):
-        hass.services.async_register(DOMAIN, SERVICE_EXECUTE, async_handle_service, schema=SERVICE_SCHEMA, supports_response=SupportsResponse.ONLY)
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_EXECUTE,
+            async_handle_service,
+            schema=SERVICE_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
 
     return True
+
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload the entry after its settings changed."""
     await hass.config_entries.async_reload(entry.entry_id)
+
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""

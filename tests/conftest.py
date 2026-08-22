@@ -1,9 +1,10 @@
 """Fixtures for mysql_query tests."""
+
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable, Generator, Sequence
 import socket
 import sys
-from collections.abc import Awaitable, Callable, Generator, Sequence
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -43,7 +44,7 @@ if sys.platform == "win32":
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(
     enable_custom_integrations: None,
-) -> Generator[None, None, None]:
+) -> Generator[None]:
     """Enable loading of custom_components/mysql_query for every test."""
     yield
 

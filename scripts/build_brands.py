@@ -31,7 +31,12 @@ BBOX_ALPHA = 48
 
 TEXT = "MySQL Query"
 TEXT_COLOR = (3, 169, 244)  # #03A9F4 - readable on both light and dark backgrounds
-FONT_CANDIDATES = ("segoeui.ttf", "arial.ttf", "VerdanaPro-Regular.ttf", "DejaVuSans.ttf")
+FONT_CANDIDATES = (
+    "segoeui.ttf",
+    "arial.ttf",
+    "VerdanaPro-Regular.ttf",
+    "DejaVuSans.ttf",
+)
 SS = 4  # supersampling factor for crisp glyph edges
 
 
@@ -62,11 +67,11 @@ def flood(candidate: np.ndarray, seeds) -> np.ndarray:
         right = x
         while right < w - 1 and candidate[y, right + 1] and not filled[y, right + 1]:
             right += 1
-        filled[y, left:right + 1] = True
+        filled[y, left : right + 1] = True
         for ny in (y - 1, y + 1):
             if not 0 <= ny < h:
                 continue
-            open_run = candidate[ny, left:right + 1] & ~filled[ny, left:right + 1]
+            open_run = candidate[ny, left : right + 1] & ~filled[ny, left : right + 1]
             idx = np.nonzero(open_run)[0]
             if idx.size:
                 starts = idx[np.concatenate(([True], np.diff(idx) > 1))]
@@ -76,8 +81,12 @@ def flood(candidate: np.ndarray, seeds) -> np.ndarray:
 
 def border_seeds(shape) -> list:
     h, w = shape
-    return ([(0, x) for x in range(w)] + [(h - 1, x) for x in range(w)]
-            + [(y, 0) for y in range(h)] + [(y, w - 1) for y in range(h)])
+    return (
+        [(0, x) for x in range(w)]
+        + [(h - 1, x) for x in range(w)]
+        + [(y, 0) for y in range(h)]
+        + [(y, w - 1) for y in range(h)]
+    )
 
 
 def soft_alpha(lum: np.ndarray) -> np.ndarray:
@@ -90,7 +99,9 @@ def compose(rgb: np.ndarray, alpha: np.ndarray) -> Image.Image:
     out = rgb.copy()
     edge = (alpha > 0.0) & (alpha < 1.0)
     out[edge] = np.clip(rgb[edge] / alpha[edge][:, None], 0, 255)
-    return Image.fromarray(np.dstack([out, alpha * 255.0]).round().astype(np.uint8), "RGBA")
+    return Image.fromarray(
+        np.dstack([out, alpha * 255.0]).round().astype(np.uint8), "RGBA"
+    )
 
 
 def key_black(path: Path) -> Image.Image:
@@ -104,13 +115,16 @@ def key_black(path: Path) -> Image.Image:
     lum = rgb.max(axis=2)
 
     outer = flood(lum <= FLOOD, border_seeds(lum.shape))
-    print("  outer background {:.1%} -> transparent; enclosed dark {:.2%} -> pending".format(
-        outer.mean(), ((lum <= FLOOD) & ~outer).mean()))
+    print(
+        f"  outer background {outer.mean():.1%} -> transparent; enclosed dark {((lum <= FLOOD) & ~outer).mean():.2%} -> pending"
+    )
 
     return compose(rgb, np.where(outer, soft_alpha(lum), 1.0))
 
 
-def drop_enclosed_background(img: Image.Image, rel_threshold: float = 0.001) -> Image.Image:
+def drop_enclosed_background(
+    img: Image.Image, rel_threshold: float = 0.001
+) -> Image.Image:
     """Clear enclosed black pockets that are background, keeping small black details.
 
     The wireframe cube and the network web are open line art: the black between their
@@ -140,14 +154,17 @@ def drop_enclosed_background(img: Image.Image, rel_threshold: float = 0.001) -> 
             kept.append(size)
         remaining &= ~pocket
 
-    print("  enclosed pockets: cleared {}px above the {}px threshold, kept {} small detail(s) {}"
-          .format(int(dropped.sum()), min_size, len(kept), sorted(kept, reverse=True)))
+    print(
+        f"  enclosed pockets: cleared {int(dropped.sum())}px above the {min_size}px threshold, kept {len(kept)} small detail(s) {sorted(kept, reverse=True)}"
+    )
     return compose(rgb, np.where(dropped, soft_alpha(lum), alpha))
 
 
 def trim(img: Image.Image, threshold: int = BBOX_ALPHA) -> Image.Image:
     ys, xs = np.nonzero(np.asarray(img)[:, :, 3] >= threshold)
-    return img.crop((int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1))
+    return img.crop(
+        (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
+    )
 
 
 def split_off_mark(img: Image.Image) -> Image.Image:
@@ -163,8 +180,9 @@ def split_off_mark(img: Image.Image) -> Image.Image:
     if start is not None:
         runs.append((start, len(empty)))
     gap = max(runs, key=lambda run: run[1] - run[0])
-    print("  widest empty gap: x {}-{} ({}px) -> mark is everything left of it".format(
-        gap[0], gap[1], gap[1] - gap[0]))
+    print(
+        f"  widest empty gap: x {gap[0]}-{gap[1]} ({gap[1] - gap[0]}px) -> mark is everything left of it"
+    )
     return trim(img.crop((0, 0, gap[0], img.height)))
 
 
@@ -172,8 +190,11 @@ def fit_center(img: Image.Image, width: int, height: int) -> Image.Image:
     scale = min(width / img.width, height / img.height)
     size = (max(1, round(img.width * scale)), max(1, round(img.height * scale)))
     canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    canvas.paste(img.resize(size, Image.LANCZOS), ((width - size[0]) // 2, (height - size[1]) // 2))
-    print("  artwork {}x{} centred on {}x{}".format(size[0], size[1], width, height))
+    canvas.paste(
+        img.resize(size, Image.LANCZOS),
+        ((width - size[0]) // 2, (height - size[1]) // 2),
+    )
+    print(f"  artwork {size[0]}x{size[1]} centred on {width}x{height}")
     return canvas
 
 
@@ -190,12 +211,18 @@ def render_text(text: str, max_width: int, max_height: int) -> Image.Image:
     font = find_font(size * SS)
     left, top, right, bottom = font.getbbox(text)
     pad = 2 * SS
-    layer = Image.new("RGBA", (right - left + 2 * pad, bottom - top + 2 * pad), (0, 0, 0, 0))
-    ImageDraw.Draw(layer).text((pad - left, pad - top), text, font=font, fill=TEXT_COLOR + (255,))
+    layer = Image.new(
+        "RGBA", (right - left + 2 * pad, bottom - top + 2 * pad), (0, 0, 0, 0)
+    )
+    ImageDraw.Draw(layer).text(
+        (pad - left, pad - top), text, font=font, fill=TEXT_COLOR + (255,)
+    )
     layer = trim(layer, threshold=1)
-    layer = layer.resize((max(1, round(layer.width / SS)), max(1, round(layer.height / SS))),
-                         Image.LANCZOS)
-    print("  wordmark at {}px -> {}x{}".format(size, layer.width, layer.height))
+    layer = layer.resize(
+        (max(1, round(layer.width / SS)), max(1, round(layer.height / SS))),
+        Image.LANCZOS,
+    )
+    print(f"  wordmark at {size}px -> {layer.width}x{layer.height}")
     return layer
 
 
@@ -204,17 +231,24 @@ def build_logo(mark: Image.Image, width: int, height: int) -> Image.Image:
     scale = height / 128
     mark_height, gap, margin = round(104 * scale), round(22 * scale), round(12 * scale)
 
-    mark = mark.resize((max(1, round(mark.width * mark_height / mark.height)), mark_height),
-                       Image.LANCZOS)
-    text_layer = render_text(TEXT, width - mark.width - gap - 2 * margin, round(74 * scale))
+    mark = mark.resize(
+        (max(1, round(mark.width * mark_height / mark.height)), mark_height),
+        Image.LANCZOS,
+    )
+    text_layer = render_text(
+        TEXT, width - mark.width - gap - 2 * margin, round(74 * scale)
+    )
 
     block = mark.width + gap + text_layer.width
     x = (width - block) // 2
     logo = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     logo.alpha_composite(mark, (x, (height - mark.height) // 2))
-    logo.alpha_composite(text_layer, (x + mark.width + gap, (height - text_layer.height) // 2))
-    print("  mark {}px + gap {} + text {}px = {}px block, centred on {}x{}".format(
-        mark.width, gap, text_layer.width, block, width, height))
+    logo.alpha_composite(
+        text_layer, (x + mark.width + gap, (height - text_layer.height) // 2)
+    )
+    print(
+        f"  mark {mark.width}px + gap {gap} + text {text_layer.width}px = {block}px block, centred on {width}x{height}"
+    )
     return logo
 
 
@@ -223,8 +257,9 @@ def save(img: Image.Image, name: str) -> None:
     BRAND_DIR.mkdir(parents=True, exist_ok=True)
     img.save(BRAND_DIR / name, "PNG", optimize=True)
     a = np.asarray(img)[:, :, 3]
-    print("  {:<14} {}x{} RGBA, corner alpha {}/{}/{}/{}, {:.1%} transparent".format(
-        name, img.width, img.height, a[0, 0], a[0, -1], a[-1, 0], a[-1, -1], (a == 0).mean()))
+    print(
+        f"  {name:<14} {img.width}x{img.height} RGBA, corner alpha {a[0, 0]}/{a[0, -1]}/{a[-1, 0]}/{a[-1, -1]}, {(a == 0).mean():.1%} transparent"
+    )
 
 
 print("icon_raw.jpeg -> icon.png, icon@2x.png")
@@ -234,6 +269,8 @@ save(fit_center(icon_art, 512, 512), "icon@2x.png")
 
 print("logo_raw.jpeg -> logo.png, logo@2x.png")
 # Trim the mark out first: the pocket threshold is relative to the artwork it belongs to.
-mark_art = trim(drop_enclosed_background(split_off_mark(trim(key_black(REPO / "logo_raw.jpeg")))))
+mark_art = trim(
+    drop_enclosed_background(split_off_mark(trim(key_black(REPO / "logo_raw.jpeg"))))
+)
 save(build_logo(mark_art, 256, 64), "logo.png")
 save(build_logo(mark_art, 512, 128), "logo@2x.png")

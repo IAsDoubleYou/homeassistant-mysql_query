@@ -1,15 +1,17 @@
 """Tests for the mysql_query integration setup and services."""
+
 from __future__ import annotations
 
 from unittest.mock import patch
 
 from aiomysql import Error as MySQLError
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 import voluptuous as vol
+
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mysql_query.const import (
     ATTR_QUERY,
@@ -162,7 +164,9 @@ async def test_execute_service_binds_rendered_values(hass: HomeAssistant) -> Non
 
     await _setup_entry(hass, FakePool(FakeConnection(cursor)))
 
-    query = "SELECT * FROM test WHERE temp = %s AND count = %s AND ok = %s AND note = %s"
+    query = (
+        "SELECT * FROM test WHERE temp = %s AND count = %s AND ok = %s AND note = %s"
+    )
     await hass.services.async_call(
         DOMAIN,
         SERVICE_EXECUTE,
@@ -291,7 +295,10 @@ async def test_query_service_broken_template_raises(hass: HomeAssistant) -> None
         await hass.services.async_call(
             DOMAIN,
             SERVICE_QUERY,
-            {ATTR_QUERY: "SELECT * FROM test WHERE id = %s", ATTR_VALUES: ["{{ 1 / 0 }}"]},
+            {
+                ATTR_QUERY: "SELECT * FROM test WHERE id = %s",
+                ATTR_VALUES: ["{{ 1 / 0 }}"],
+            },
             blocking=True,
             return_response=True,
         )

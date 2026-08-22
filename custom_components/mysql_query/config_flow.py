@@ -1,4 +1,5 @@
 """Config flow for mysql_query integration."""
+
 from __future__ import annotations
 
 import logging
@@ -10,28 +11,28 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import callback
-import homeassistant.helpers.config_validation as cv
 
 from .const import (
-    DOMAIN,
-    CONF_MYSQL_HOST,
-    CONF_MYSQL_PORT,
-    CONF_MYSQL_USERNAME,
-    CONF_MYSQL_PASSWORD,
-    CONF_MYSQL_DB,
-    CONF_MYSQL_TIMEOUT,
+    CONF_AUTOCOMMIT,
     CONF_MYSQL_CHARSET,
     CONF_MYSQL_COLLATION,
-    CONF_AUTOCOMMIT,
+    CONF_MYSQL_DB,
+    CONF_MYSQL_HOST,
+    CONF_MYSQL_PASSWORD,
+    CONF_MYSQL_PORT,
+    CONF_MYSQL_TIMEOUT,
+    CONF_MYSQL_USERNAME,
     CONF_ROW_LIMIT,
+    DEFAULT_MYSQL_AUTOCOMMIT,
     DEFAULT_MYSQL_PORT,
     DEFAULT_MYSQL_TIMEOUT,
-    DEFAULT_MYSQL_AUTOCOMMIT,
     DEFAULT_ROW_LIMIT,
+    DOMAIN,
 )
 from .db import async_test_connection
 
 _LOGGER = logging.getLogger(__name__)
+
 
 def get_schema(defaults: dict[str, Any]) -> vol.Schema:
     """Return the schema with provided default values.
@@ -41,18 +42,40 @@ def get_schema(defaults: dict[str, Any]) -> vol.Schema:
     """
     return vol.Schema(
         {
-            vol.Required(CONF_MYSQL_HOST, default=defaults.get(CONF_MYSQL_HOST, "")): str,
-            vol.Required(CONF_MYSQL_PORT, default=defaults.get(CONF_MYSQL_PORT, DEFAULT_MYSQL_PORT)): int,
-            vol.Required(CONF_MYSQL_USERNAME, default=defaults.get(CONF_MYSQL_USERNAME, "")): str,
-            vol.Required(CONF_MYSQL_PASSWORD, default=defaults.get(CONF_MYSQL_PASSWORD, "")): str,
+            vol.Required(
+                CONF_MYSQL_HOST, default=defaults.get(CONF_MYSQL_HOST, "")
+            ): str,
+            vol.Required(
+                CONF_MYSQL_PORT,
+                default=defaults.get(CONF_MYSQL_PORT, DEFAULT_MYSQL_PORT),
+            ): int,
+            vol.Required(
+                CONF_MYSQL_USERNAME, default=defaults.get(CONF_MYSQL_USERNAME, "")
+            ): str,
+            vol.Required(
+                CONF_MYSQL_PASSWORD, default=defaults.get(CONF_MYSQL_PASSWORD, "")
+            ): str,
             vol.Required(CONF_MYSQL_DB, default=defaults.get(CONF_MYSQL_DB, "")): str,
-            vol.Optional(CONF_MYSQL_TIMEOUT, default=defaults.get(CONF_MYSQL_TIMEOUT, DEFAULT_MYSQL_TIMEOUT)): int,
-            vol.Optional(CONF_MYSQL_CHARSET, default=defaults.get(CONF_MYSQL_CHARSET, "")): str,
-            vol.Optional(CONF_MYSQL_COLLATION, default=defaults.get(CONF_MYSQL_COLLATION, "")): str,
-            vol.Optional(CONF_AUTOCOMMIT, default=defaults.get(CONF_AUTOCOMMIT, DEFAULT_MYSQL_AUTOCOMMIT)): bool,
-            vol.Optional(CONF_ROW_LIMIT, default=defaults.get(CONF_ROW_LIMIT, DEFAULT_ROW_LIMIT)): int,
+            vol.Optional(
+                CONF_MYSQL_TIMEOUT,
+                default=defaults.get(CONF_MYSQL_TIMEOUT, DEFAULT_MYSQL_TIMEOUT),
+            ): int,
+            vol.Optional(
+                CONF_MYSQL_CHARSET, default=defaults.get(CONF_MYSQL_CHARSET, "")
+            ): str,
+            vol.Optional(
+                CONF_MYSQL_COLLATION, default=defaults.get(CONF_MYSQL_COLLATION, "")
+            ): str,
+            vol.Optional(
+                CONF_AUTOCOMMIT,
+                default=defaults.get(CONF_AUTOCOMMIT, DEFAULT_MYSQL_AUTOCOMMIT),
+            ): bool,
+            vol.Optional(
+                CONF_ROW_LIMIT, default=defaults.get(CONF_ROW_LIMIT, DEFAULT_ROW_LIMIT)
+            ): int,
         }
     )
+
 
 class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for mysql_query."""
@@ -63,7 +86,9 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Test if the database connection works with provided settings."""
         await async_test_connection(user_input)
 
-    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Handle the initial step when a user adds the integration via UI."""
         errors = {}
 
@@ -71,7 +96,7 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Fall back to the default limit when the field is empty or invalid
             if not user_input.get(CONF_ROW_LIMIT) or user_input[CONF_ROW_LIMIT] < 1:
                 user_input[CONF_ROW_LIMIT] = DEFAULT_ROW_LIMIT
-            
+
             try:
                 await self._test_connection(user_input)
 
@@ -79,7 +104,9 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(unique_id)
                 self._abort_if_unique_id_configured()
 
-                title = f"MySQL: {user_input[CONF_MYSQL_HOST]}/{user_input[CONF_MYSQL_DB]}"
+                title = (
+                    f"MySQL: {user_input[CONF_MYSQL_HOST]}/{user_input[CONF_MYSQL_DB]}"
+                )
                 return self.async_create_entry(title=title, data=user_input)
             except (Error, OSError, TimeoutError) as err:
                 _LOGGER.error("MySQL connection error: %s", err)
@@ -89,9 +116,7 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
 
         return self.async_show_form(
-            step_id="user",
-            data_schema=get_schema(user_input or {}),
-            errors=errors
+            step_id="user", data_schema=get_schema(user_input or {}), errors=errors
         )
 
     async def async_step_import(self, import_data: dict[str, Any]) -> ConfigFlowResult:
@@ -115,7 +140,9 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> MySQLQueryOptionsFlow:
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> MySQLQueryOptionsFlow:
         """Create the options flow handler."""
         return MySQLQueryOptionsFlow()
 
@@ -127,19 +154,22 @@ class MySQLQueryOptionsFlow(config_entries.OptionsFlow):
     # which resolves it from the handler on every access. Keeping a reference of
     # our own would only add a second name for the same object.
 
-    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Manage the settings via the Configure button."""
         if user_input is not None:
             # Fall back to the default limit when the field is empty or invalid
             if not user_input.get(CONF_ROW_LIMIT) or user_input[CONF_ROW_LIMIT] < 1:
                 user_input[CONF_ROW_LIMIT] = DEFAULT_ROW_LIMIT
-                
-            self.hass.config_entries.async_update_entry(self.config_entry, data=user_input)
+
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, data=user_input
+            )
             return self.async_create_entry(title="", data={})
 
         current_settings = dict(self.config_entry.data)
 
         return self.async_show_form(
-            step_id="init",
-            data_schema=get_schema(current_settings)
+            step_id="init", data_schema=get_schema(current_settings)
         )

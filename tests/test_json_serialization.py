@@ -1,13 +1,15 @@
 """Tests for converting MySQL column values into JSON-serialisable data."""
+
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.json import json_dumps
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mysql_query import format_timedelta, to_json_serializable
 from custom_components.mysql_query.const import (
