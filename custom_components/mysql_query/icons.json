@@ -1,0 +1,10 @@
+{
+  "services": {
+    "query": {
+      "service": "mdi:database-search"
+    },
+    "execute": {
+      "service": "mdi:database-edit"
+    }
+  }
+}
