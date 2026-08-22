@@ -647,3 +647,5 @@ See [CHANGELOG.md](CHANGELOG.md) for a full list of changes per version.
 [downloads_total_shield]: https://img.shields.io/github/downloads/IAsDoubleYou/homeassistant-mysql_query/total?style=flat-square
 [community_forum_shield]: https://img.shields.io/static/v1.svg?label=%20&message=Forum&style=flat-square&color=41bdf5&logo=HomeAssistant&logoColor=white
 [community_forum]: https://community.home-assistant.io/t/mysql-query/734346
+
+<!-- test change -->
