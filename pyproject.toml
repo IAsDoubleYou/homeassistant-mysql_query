@@ -1,3 +1,73 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+src = ["custom_components", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "A",      # flake8-builtins
+    "ASYNC",  # flake8-async
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "D",      # pydocstyle
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "I",      # isort
+    "ICN",    # flake8-import-conventions
+    "INP",    # flake8-no-pep420
+    "ISC",    # flake8-implicit-str-concat
+    "N",      # pep8-naming
+    "PGH",    # pygrep-hooks
+    "PIE",    # flake8-pie
+    "PL",     # pylint
+    "PT",     # flake8-pytest-style
+    "RET",    # flake8-return
+    "RSE",    # flake8-raise
+    "RUF",    # ruff specific rules
+    "SIM",    # flake8-simplify
+    "SLF",    # flake8-self
+    "SLOT",   # flake8-slots
+    "T20",    # flake8-print
+    "TID",    # flake8-tidy-imports
+    "TRY",    # tryceratops
+    "UP",     # pyupgrade
+    "W",      # pycodestyle warnings
+]
+ignore = [
+    "D203",    # Conflicts with D211, which is the convention used here
+    "D213",    # Conflicts with D212, which is the convention used here
+    "PLR0911", # A flat chain of conversions reads better than nested branches
+    "TRY003",  # Errors carry the driver message, which belongs in the raise
+    "TRY400",  # Not every failure in a service call deserves a stack trace
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    "ASYNC110", # Polling a counter is how the concurrency tests observe order
+    "PLR0913",  # The fakes take their whole configuration as keyword arguments
+    "PLR2004",  # Comparing against literals is what an assertion does
+    "SLF001",   # Private helpers are part of what the tests cover
+]
+"tests/_win_shims/*" = [
+    "INP001",   # Put on PYTHONPATH by hand, so it is not a package
+]
+"scripts/*" = [
+    "D103",     # A one-off build script does not need a docstring per helper
+    "INP001",   # Run directly as a file, not imported as a package
+    "PLR2004",  # Image sizes and thresholds read better as literals here
+    "T201",     # Printing its progress is the whole interface of the script
+]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+force-sort-within-sections = true
+known-first-party = ["homeassistant"]
+known-local-folder = ["custom_components", "tests"]
+split-on-trailing-comma = false
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
