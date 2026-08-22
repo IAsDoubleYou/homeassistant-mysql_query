@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- A `query` or `execute` call that does not name a `config_entry` now runs on the first connection in the config entry registry, an order that stays the same across reloads. It used to run on whichever connection was set up first, which meant that reloading that connection silently moved later calls to another one. This only matters with two or more connections configured and calls that leave `config_entry` empty; with a single connection nothing changes.
+
 ## [2.1.1] - 2026-08-18
 
 ### Added

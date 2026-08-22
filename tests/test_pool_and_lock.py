@@ -417,3 +417,125 @@ async def test_connections_are_returned_across_repeated_failures(
 
     assert pool.acquired == POOL_MAX_SIZE + 1
     assert pool.released == pool.acquired
+
+
+async def _setup_two_entries(
+    hass: HomeAssistant, first: FakePool, second: FakePool
+) -> tuple[MockConfigEntry, MockConfigEntry]:
+    """Set up two connections, in registry order."""
+    first_entry = await _setup_entry(hass, first)
+    second_entry = await _setup_entry(
+        hass, second, data={**ENTRY_DATA, CONF_MYSQL_DB: "other_db"}
+    )
+    return first_entry, second_entry
+
+
+async def test_call_without_config_entry_uses_the_first_connection(
+    hass: HomeAssistant,
+) -> None:
+    """A call that names no connection runs on the first one."""
+    first = FakePool(FakeConnection(_cursor()))
+    second = FakePool(FakeConnection(_cursor()))
+
+    await _setup_two_entries(hass, first, second)
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_QUERY,
+        {ATTR_QUERY: "SELECT 1"},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert first.acquired == 1
+    assert second.acquired == 0
+
+
+async def test_default_connection_survives_a_reload(hass: HomeAssistant) -> None:
+    """Reloading a connection does not move the default to another one.
+
+    The connection is picked from the config entry registry, whose order does
+    not change when an entry is unloaded and set up again. Reading the order
+    from a dict filled during setup would put the reloaded entry last, and
+    silently hand later calls to the other connection.
+    """
+    first = FakePool(FakeConnection(_cursor()))
+    second = FakePool(FakeConnection(_cursor()))
+
+    first_entry, _ = await _setup_two_entries(hass, first, second)
+
+    # Reload the connection that calls default to.
+    reloaded = FakePool(FakeConnection(_cursor()))
+    with patch_create_pool(reloaded):
+        assert await hass.config_entries.async_reload(first_entry.entry_id)
+        await hass.async_block_till_done()
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_QUERY,
+        {ATTR_QUERY: "SELECT 1"},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert reloaded.acquired == 1, "the default moved to the other connection"
+    assert second.acquired == 0
+
+
+async def test_unloading_one_connection_keeps_the_services(
+    hass: HomeAssistant,
+) -> None:
+    """The services stay registered while another connection is still loaded."""
+    first = FakePool(FakeConnection(_cursor()))
+    second = FakePool(FakeConnection(_cursor()))
+
+    first_entry, _ = await _setup_two_entries(hass, first, second)
+
+    assert await hass.config_entries.async_unload(first_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert hass.services.has_service(DOMAIN, SERVICE_QUERY)
+    assert hass.services.has_service(DOMAIN, SERVICE_EXECUTE)
+
+    # The remaining connection is now the one calls default to.
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_QUERY,
+        {ATTR_QUERY: "SELECT 1"},
+        blocking=True,
+        return_response=True,
+    )
+    assert second.acquired == 1
+
+
+async def test_unloading_the_last_connection_removes_the_services(
+    hass: HomeAssistant,
+) -> None:
+    """The services are gone once no connection is loaded any more."""
+    entry = await _setup_entry(hass, FakePool(FakeConnection(_cursor())))
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert not hass.services.has_service(DOMAIN, SERVICE_QUERY)
+    assert not hass.services.has_service(DOMAIN, SERVICE_EXECUTE)
+
+
+async def test_call_on_an_unloaded_connection_is_refused(hass: HomeAssistant) -> None:
+    """Naming a connection that is no longer loaded fails the call."""
+    first = FakePool(FakeConnection(_cursor()))
+    second = FakePool(FakeConnection(_cursor()))
+
+    first_entry, _ = await _setup_two_entries(hass, first, second)
+
+    assert await hass.config_entries.async_unload(first_entry.entry_id)
+    await hass.async_block_till_done()
+
+    with pytest.raises(HomeAssistantError, match="No database instance available"):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_QUERY,
+            {ATTR_QUERY: "SELECT 1", ATTR_CONFIG_ENTRY: first_entry.entry_id},
+            blocking=True,
+            return_response=True,
+        )

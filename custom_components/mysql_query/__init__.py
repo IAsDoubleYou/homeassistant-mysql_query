@@ -21,6 +21,7 @@ from homeassistant.core import (
     ServiceCall,
     ServiceResponse,
     SupportsResponse,
+    callback,
 )
 from homeassistant.exceptions import HomeAssistantError, TemplateError
 import homeassistant.helpers.config_validation as cv
@@ -87,6 +88,26 @@ class MySQLInstance:
     # at the same time, and MySQL only handles one statement per connection at
     # a time, so the lock keeps the calls from interleaving.
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+
+type MySQLQueryConfigEntry = ConfigEntry[MySQLInstance]
+
+
+@callback
+def _async_instance(hass: HomeAssistant, entry_id: str | None) -> MySQLInstance | None:
+    """Return the connection a service call should run on.
+
+    Without an entry ID the first loaded connection is used. That order comes
+    from the config entry registry, so it is the same on every call and does
+    not shift when one of the connections is reloaded.
+    """
+    entries = hass.config_entries.async_loaded_entries(DOMAIN)
+    if entry_id:
+        return next(
+            (entry.runtime_data for entry in entries if entry.entry_id == entry_id),
+            None,
+        )
+    return next((entry.runtime_data for entry in entries), None)
 
 
 def format_timedelta(value: timedelta) -> str:
@@ -308,14 +329,15 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  # noqa: PLR0915
+async def async_setup_entry(  # noqa: PLR0915
+    hass: HomeAssistant, entry: MySQLQueryConfigEntry
+) -> bool:
     """Set up mysql_query from a config entry.
 
-    Long on purpose: the service handler is nested here so it closes over the
-    instances of this entry. Splitting it out would mean passing that state
-    around by hand for no gain in clarity.
+    Long on purpose: the service handler is nested here so it closes over
+    hass. It is registered once and serves every connection, looking up the
+    one to use at call time.
     """
-    instances: dict[str, MySQLInstance] = hass.data.setdefault(DOMAIN, {})
     config = entry.data
 
     try:
@@ -329,9 +351,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
         )
         return False
 
-    instances[entry.entry_id] = MySQLInstance(
-        pool=pool, config=config, title=entry.title
-    )
+    entry.runtime_data = MySQLInstance(pool=pool, config=config, title=entry.title)
 
     # Changed settings must rebuild the pool, so reload the entry on update.
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
@@ -343,11 +363,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
         _db4query = call.data.get(ATTR_DB4QUERY)
         target_entry_id = call.data.get(ATTR_CONFIG_ENTRY)
 
-        if target_entry_id:
-            instance = instances.get(target_entry_id)
-        else:
-            instance = next(iter(instances.values()), None)
-
+        instance = _async_instance(hass, target_entry_id)
         if instance is None:
             raise HomeAssistantError("No database instance available.")
 
@@ -453,15 +469,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
     return True
 
 
-async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def async_reload_entry(hass: HomeAssistant, entry: MySQLQueryConfigEntry) -> None:
     """Reload the entry after its settings changed."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: MySQLQueryConfigEntry) -> bool:
     """Unload a config entry."""
-    instances: dict[str, MySQLInstance] = hass.data.get(DOMAIN, {})
-    instance = instances.pop(entry.entry_id, None)
+    # An entry whose setup failed never got its runtime data.
+    instance = getattr(entry, "runtime_data", None)
     if instance is None:
         return True
 
@@ -471,7 +487,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         instance.pool.close()
         await instance.pool.wait_closed()
 
-    if not instances:
+    # This entry left the loaded set before the unload was handed to us, so an
+    # empty list here means it was the last connection.
+    if not hass.config_entries.async_loaded_entries(DOMAIN):
         hass.services.async_remove(DOMAIN, SERVICE_QUERY)
         hass.services.async_remove(DOMAIN, SERVICE_EXECUTE)
 
