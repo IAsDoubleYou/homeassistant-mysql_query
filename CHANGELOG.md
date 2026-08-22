@@ -5,11 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.2.0] - 2026-08-22
+
+This release is about the configuration screens telling you what went wrong, and about the connection a service call lands on when it does not name one. It also puts the test suite and the linter in CI, where nothing was running them before.
+
+**Minimum Home Assistant version is now declared as 2025.3.0.** The integration already needed it; see below.
+
+### Added
+
+- The setup screen names the cause of a failed connection instead of reporting everything as "Failed to connect, please check your settings". Wrong credentials, a database that does not exist or is not accessible, and a server that cannot be reached are told apart by the MySQL error code. The causes that do not speak for themselves now carry the driver's own message onto the form, shortened to 255 characters, so a refused connection, a timeout and a rejected charset are no longer indistinguishable. The `invalid_auth` message shipped in every translation but was never used by any code path; it is now.
+- **Configure verifies the connection before saving it.** Submitting settings that cannot reach the database used to store them anyway, after which the reload failed and the reason was visible only in the log. The form now reports the problem the same way the initial setup step does, and comes back with the values still filled in rather than reset to the stored settings.
+- Service icons: `query` shows a database search icon and `execute` a database edit icon, instead of both falling back to the generic one.
+- A `loggers` entry in the manifest, so "enable debug logging" on the integration also turns on the `aiomysql` logger. Without it the driver's own messages were missing from the log around a connection problem.
+- Continuous integration for the test suite and the linter. A ruff configuration in `pyproject.toml`, a `Lint` workflow that checks the rules and the formatting, and a `Tests` workflow that installs `requirements_test.txt` on Python 3.14 and runs pytest. Neither was running on a push before.
+- `requirements_test.txt`, so reproducing a test run no longer means guessing which packages it needs.
 
 ### Changed
-- `hacs.json` now declares a minimum Home Assistant version of 2025.3.0, and the README says the same. The integration already needed it: releasing the shared services when the last connection is unloaded relies on the config entry state that release sets before calling `async_unload_entry`. Without the declaration HACS offered the update to installations where that cleanup would silently not run. The README still claimed 2023.7.
+
 - A `query` or `execute` call that does not name a `config_entry` now runs on the first connection in the config entry registry, an order that stays the same across reloads. It used to run on whichever connection was set up first, which meant that reloading that connection silently moved later calls to another one. This only matters with two or more connections configured and calls that leave `config_entry` empty; with a single connection nothing changes.
+- `hacs.json` declares a minimum Home Assistant version of 2025.3.0. The integration already needed it: releasing the shared services when the last connection is unloaded reads `async_loaded_entries()` from inside `async_unload_entry`, which only leaves out the entry being unloaded since the config entry state that release introduced. Without the declaration HACS offered the update to installations where that cleanup would silently not run.
+- Internal: the pool, its lock and the entry settings live on the config entry's `runtime_data` instead of in a dict under `hass.data`, typed through a `MySQLQueryConfigEntry` alias. The options flow reads the entry from the `config_entry` property Home Assistant provides rather than being handed it and keeping a copy. Constants are marked `Final`. None of this changes what the integration does.
+- Internal: the remaining Dutch comments are in English, matching the rest of the repository.
+
+### Fixed
+
+- The HACS validation workflow ran on an empty workspace because it never checked out the repository, so it validated nothing at all. Both validation workflows now check out the repository, use `actions/checkout@v5`, and no longer carry a nightly schedule that GitHub disables after 60 days of inactivity.
+- The README claimed Home Assistant 2023.7 or newer, dating from when the response-data services were the newest thing used. It now matches the declared minimum.
+- The fallback error raised by a `query` call is chained to the error it came from, like the two handlers next to it already were.
 
 ## [2.1.1] - 2026-08-18
 
