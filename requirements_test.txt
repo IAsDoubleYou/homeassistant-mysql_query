@@ -1,0 +1,2 @@
+aiomysql==0.2.0
+pytest-homeassistant-custom-component

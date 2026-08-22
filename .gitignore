@@ -6,6 +6,8 @@
 .venv/
 .venv-wsl/
 .pytest_cache/
+.coverage
+htmlcov/
 README.pdf
 c.bat
 c.sh
