@@ -14,7 +14,11 @@
                     "mysql_charset": "Tekenset",
                     "mysql_collation": "Collatie",
                     "mysql_autocommit": "Autocommit",
-                    "mysql_row_limit": "Rijlimiet (veiligheidsgrens)"
+                    "mysql_row_limit": "Rijlimiet (veiligheidsgrens)",
+                    "mysql_use_tls": "Verbinding versleutelen (TLS)"
+                },
+                "data_description": {
+                    "mysql_use_tls": "Versleutelt het verkeer naar de database. De server moet TLS geconfigureerd hebben; zonder TLS mislukt de verbinding. Het servercertificaat wordt niet gecontroleerd, dus dit beschermt tegen meelezen op het netwerk, niet tegen een server die zich voordoet als de jouwe. Standaard uit, zodat bestaande installaties blijven werken."
                 }
             }
         },
@@ -22,7 +26,8 @@
             "cannot_connect": "Verbinden met de server is mislukt. Controleer de host, de poort en je firewall. Details: {error}",
             "invalid_auth": "De server weigerde de gebruikersnaam of het wachtwoord.",
             "unknown_database": "De database bestaat niet, of deze gebruiker heeft er geen toegang toe.",
-            "unknown": "Onverwachte fout bij het verbinden: {error}"
+            "unknown": "Onverwachte fout bij het verbinden: {error}",
+            "tls_unavailable": "De server accepteerde de verbinding maar versleutelde die niet. Configureer TLS op de database, of zet de versleutelingsoptie uit."
         },
         "abort": {
             "already_configured": "Deze verbinding is al geconfigureerd.",
@@ -43,7 +48,11 @@
                     "mysql_charset": "Tekenset",
                     "mysql_collation": "Collatie",
                     "mysql_autocommit": "Autocommit",
-                    "mysql_row_limit": "Rijlimiet (veiligheidsgrens)"
+                    "mysql_row_limit": "Rijlimiet (veiligheidsgrens)",
+                    "mysql_use_tls": "Verbinding versleutelen (TLS)"
+                },
+                "data_description": {
+                    "mysql_use_tls": "Versleutelt het verkeer naar de database. De server moet TLS geconfigureerd hebben; zonder TLS mislukt de verbinding. Het servercertificaat wordt niet gecontroleerd, dus dit beschermt tegen meelezen op het netwerk, niet tegen een server die zich voordoet als de jouwe. Standaard uit, zodat bestaande installaties blijven werken."
                 }
             }
         },
@@ -51,7 +60,8 @@
             "cannot_connect": "Verbinden met de server is mislukt. Controleer de host, de poort en je firewall. Details: {error}",
             "invalid_auth": "De server weigerde de gebruikersnaam of het wachtwoord.",
             "unknown_database": "De database bestaat niet, of deze gebruiker heeft er geen toegang toe.",
-            "unknown": "Onverwachte fout bij het verbinden: {error}"
+            "unknown": "Onverwachte fout bij het verbinden: {error}",
+            "tls_unavailable": "De server accepteerde de verbinding maar versleutelde die niet. Configureer TLS op de database, of zet de versleutelingsoptie uit."
         }
     },
     "services": {

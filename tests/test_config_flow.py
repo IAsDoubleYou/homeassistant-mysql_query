@@ -22,9 +22,11 @@ from custom_components.mysql_query.const import (
     CONF_MYSQL_TIMEOUT,
     CONF_MYSQL_USERNAME,
     CONF_ROW_LIMIT,
+    CONF_USE_TLS,
     DEFAULT_ROW_LIMIT,
     DOMAIN,
 )
+from custom_components.mysql_query.db import TLSUnavailableError
 from tests.conftest import FakePool
 
 USER_INPUT = {
@@ -50,6 +52,20 @@ def patch_driver(**connect_kwargs) -> Iterator[AsyncMock]:
         patch("aiomysql.create_pool", AsyncMock(return_value=FakePool())),
     ):
         yield connect
+
+
+@contextmanager
+def patch_tls_ok() -> Iterator[None]:
+    """Let the TLS check pass, in the config flow and in the entry setup.
+
+    Both call async_verify_tls, each through its own module namespace, and the
+    mocked driver of patch_driver() cannot answer a SHOW STATUS query.
+    """
+    with (
+        patch("custom_components.mysql_query.db.async_verify_tls", AsyncMock()),
+        patch("custom_components.mysql_query.async_verify_tls", AsyncMock()),
+    ):
+        yield
 
 
 async def test_user_flow_success(hass: HomeAssistant) -> None:
@@ -439,3 +455,100 @@ async def test_options_flow_recovers_after_an_error(hass: HomeAssistant) -> None
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.data[CONF_MYSQL_DB] == "other_db"
+
+
+async def test_user_flow_tls_unavailable(hass: HomeAssistant) -> None:
+    """A server that does not encrypt is reported as such, not as a refusal.
+
+    The settings are fine and the server let us in; it just never ran the
+    handshake. Reporting that as "cannot connect" would send someone looking
+    at their host and firewall instead of at their database's TLS setup.
+    """
+    with patch(
+        "custom_components.mysql_query.config_flow.async_test_connection",
+        AsyncMock(side_effect=TLSUnavailableError("not encrypted")),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {**USER_INPUT, CONF_USE_TLS: True}
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "tls_unavailable"}
+
+
+async def test_user_flow_stores_the_tls_choice(hass: HomeAssistant) -> None:
+    """The option ends up in the config entry."""
+    with patch_driver(), patch_tls_ok():
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {**USER_INPUT, CONF_USE_TLS: True}
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_USE_TLS] is True
+
+
+async def test_user_flow_defaults_tls_to_off(hass: HomeAssistant) -> None:
+    """Submitting the form untouched leaves encryption off.
+
+    Existing installations must keep the connection they had, so the default
+    is what decides whether an upgrade breaks them.
+    """
+    with patch_driver():
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        defaults = {key.schema: key.default() for key in result["data_schema"].schema}
+        assert defaults[CONF_USE_TLS] is False
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], USER_INPUT
+        )
+        await hass.async_block_till_done()
+
+    assert result["data"].get(CONF_USE_TLS, False) is False
+
+
+async def test_options_flow_tls_unavailable(hass: HomeAssistant) -> None:
+    """Turning encryption on against a server without TLS is refused."""
+    data = {**USER_INPUT, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT}
+    entry = MockConfigEntry(domain=DOMAIN, data=data)
+    entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.mysql_query.config_flow.async_test_connection",
+        AsyncMock(side_effect=TLSUnavailableError("not encrypted")),
+    ):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {**USER_INPUT, CONF_USE_TLS: True}
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "tls_unavailable"}
+    # Nothing was stored, so the entry keeps running unencrypted as before.
+    assert entry.data == data
+
+
+async def test_options_flow_turns_tls_on(hass: HomeAssistant) -> None:
+    """A server that does encrypt lets the option be saved."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT}
+    )
+    entry.add_to_hass(hass)
+
+    with patch_driver(), patch_tls_ok():
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {**USER_INPUT, CONF_USE_TLS: True}
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.data[CONF_USE_TLS] is True

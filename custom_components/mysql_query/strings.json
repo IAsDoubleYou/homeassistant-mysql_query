@@ -14,7 +14,11 @@
                     "mysql_charset": "Charset",
                     "mysql_collation": "Collation",
                     "mysql_autocommit": "Autocommit",
-                    "mysql_row_limit": "Row Limit (Safety Cap)"
+                    "mysql_row_limit": "Row Limit (Safety Cap)",
+                    "mysql_use_tls": "Encrypt the connection (TLS)"
+                },
+                "data_description": {
+                    "mysql_use_tls": "Encrypts the traffic to the database. The server must have TLS configured; the connection fails if it does not. The server certificate is not verified, so this protects against reading along on the network, not against a server impersonating yours. Off by default so existing setups keep working."
                 }
             }
         },
@@ -22,7 +26,8 @@
             "cannot_connect": "Failed to connect to the server. Check the host, the port and your firewall. Details: {error}",
             "invalid_auth": "The server refused the username or password.",
             "unknown_database": "The database does not exist, or this user has no access to it.",
-            "unknown": "Unexpected error while connecting: {error}"
+            "unknown": "Unexpected error while connecting: {error}",
+            "tls_unavailable": "The server accepted the connection but did not encrypt it. Configure TLS on the database, or turn the encryption option off."
         },
         "abort": {
             "already_configured": "This connection is already configured.",
@@ -43,7 +48,11 @@
                     "mysql_charset": "Charset",
                     "mysql_collation": "Collation",
                     "mysql_autocommit": "Autocommit",
-                    "mysql_row_limit": "Row Limit (Safety Cap)"
+                    "mysql_row_limit": "Row Limit (Safety Cap)",
+                    "mysql_use_tls": "Encrypt the connection (TLS)"
+                },
+                "data_description": {
+                    "mysql_use_tls": "Encrypts the traffic to the database. The server must have TLS configured; the connection fails if it does not. The server certificate is not verified, so this protects against reading along on the network, not against a server impersonating yours. Off by default so existing setups keep working."
                 }
             }
         },
@@ -51,7 +60,8 @@
             "cannot_connect": "Failed to connect to the server. Check the host, the port and your firewall. Details: {error}",
             "invalid_auth": "The server refused the username or password.",
             "unknown_database": "The database does not exist, or this user has no access to it.",
-            "unknown": "Unexpected error while connecting: {error}"
+            "unknown": "Unexpected error while connecting: {error}",
+            "tls_unavailable": "The server accepted the connection but did not encrypt it. Configure TLS on the database, or turn the encryption option off."
         }
     },
     "services": {

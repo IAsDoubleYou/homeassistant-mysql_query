@@ -27,12 +27,23 @@ CONF_MYSQL_CHARSET: Final = "mysql_charset"
 CONF_MYSQL_COLLATION: Final = "mysql_collation"
 CONF_AUTOCOMMIT: Final = "mysql_autocommit"
 CONF_ROW_LIMIT: Final = "mysql_row_limit"
+CONF_USE_TLS: Final = "mysql_use_tls"
 
 # Defaults
 DEFAULT_MYSQL_PORT: Final = 3306
 DEFAULT_MYSQL_TIMEOUT: Final = 10
 DEFAULT_MYSQL_AUTOCOMMIT: Final = True
 DEFAULT_ROW_LIMIT: Final = 1000
+
+# TODO: flip this to True in a future release.
+#
+# Off for now so upgrading changes nothing: a database that has no certificate
+# configured is the normal case on a home network, and turning TLS on for those
+# installations would fail every connection on the first restart after the
+# update. Flipping the default is a breaking change and needs its own release,
+# with the switch called out in the release notes so people whose server has no
+# TLS can turn it back off.
+DEFAULT_USE_TLS: Final = False
 
 # Connection pool sizing. Service calls on one config entry are serialised by
 # an asyncio.Lock, so one warm connection carries the normal load; the extra

@@ -107,8 +107,27 @@ All fields below appear both in the setup form and in the options form. The **Ke
 | **Collation** | ```mysql_collation``` | No | server default | Optional collation, for example ```utf8mb4_unicode_ci```. Must be compatible with the chosen charset. Leave empty to use the server default. |
 | **Autocommit** | ```mysql_autocommit``` | No | ```true``` | When enabled, every statement is committed immediately. With autocommit disabled the integration still commits explicitly after a successful non-SELECT statement, so writes are not lost. |
 | **Row Limit (Safety Cap)** | ```mysql_row_limit``` | No | ```1000``` | Maximum number of rows a single SELECT may return to Home Assistant. This is a memory safety net, not a SQL ```LIMIT```. Values below ```1``` fall back to the default. |
+| **Encrypt the connection (TLS)** | ```mysql_use_tls``` | No | ```false``` | Encrypts the traffic between Home Assistant and the database. See [Encrypting the connection](#encrypting-the-connection). |
 
 ### Stability & Performance
+
+### Encrypting the connection
+
+By default the connection to the database is **not encrypted**. Turning on **Encrypt the connection (TLS)** makes the integration negotiate TLS when it connects.
+
+**What it protects against.** The traffic is encrypted, so someone able to watch the network between Home Assistant and the database cannot read your queries, your results, or the password used to log in.
+
+**What it does not protect against.** The server's certificate is **not verified** — neither its signature nor its hostname. A database on a home network nearly always carries a self signed certificate, and requiring a verifiable one would make this option unusable for most people. The consequence is that an attacker who can actively intercept the connection and present a certificate of their own is not stopped by this. In other words: this defends against passive eavesdropping, not against an active man in the middle.
+
+**The server has to support it.** If the database has no TLS configured, the connection is refused with a clear message rather than quietly falling back to an unencrypted one. That fallback is what the driver does on its own, and it is exactly what this option exists to prevent. You can check what your server offers with:
+
+```sql
+SHOW GLOBAL VARIABLES LIKE 'have_ssl';
+```
+
+`YES` means TLS is available. `DISABLED` or `NO` means you need to configure a certificate on the database first, or leave this option off.
+
+**Why the default is off.** Most Home Assistant installations talk to a MySQL or MariaDB server that has no certificate configured at all. Defaulting to on would break every one of those connections on the first restart after an update. The default is expected to change to on in a future release, announced as a breaking change.
 
 To prevent Home Assistant from becoming unresponsive when querying large tables, this integration uses a **Row Limit**.
 - If a query returns more rows than configured, the result set is truncated, and a warning is logged in the Home Assistant logs.

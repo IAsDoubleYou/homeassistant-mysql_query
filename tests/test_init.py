@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from aiomysql import Error as MySQLError
 import pytest
@@ -22,10 +22,12 @@ from custom_components.mysql_query.const import (
     CONF_MYSQL_PORT,
     CONF_MYSQL_USERNAME,
     CONF_ROW_LIMIT,
+    CONF_USE_TLS,
     DOMAIN,
     SERVICE_EXECUTE,
     SERVICE_QUERY,
 )
+from custom_components.mysql_query.db import TLSUnavailableError
 from tests.conftest import FakeConnection, FakeCursor, FakePool, patch_create_pool
 
 ENTRY_DATA = {
@@ -420,3 +422,69 @@ async def test_unload_entry_closes_connection(hass: HomeAssistant) -> None:
     assert pool.wait_closed_called
     assert not hass.services.has_service(DOMAIN, SERVICE_QUERY)
     assert entry.state is ConfigEntryState.NOT_LOADED
+
+
+async def test_setup_fails_when_tls_is_not_established(hass: HomeAssistant) -> None:
+    """A connection that asked for TLS but did not get it does not load.
+
+    aiomysql skips the handshake when the server does not advertise TLS and
+    carries on in plain text without reporting it, so without this check an
+    entry configured for encryption would keep running unencrypted.
+    """
+    pool = FakePool(FakeConnection(FakeCursor()))
+    entry = MockConfigEntry(domain=DOMAIN, data={**ENTRY_DATA, CONF_USE_TLS: True})
+    entry.add_to_hass(hass)
+
+    with (
+        patch_create_pool(pool),
+        patch(
+            "custom_components.mysql_query.async_verify_tls",
+            AsyncMock(side_effect=TLSUnavailableError("not encrypted")),
+        ),
+    ):
+        assert not await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is not ConfigEntryState.LOADED
+    # The pool it had already built is handed back, not left dangling.
+    assert pool.closed
+    assert pool.wait_closed_called
+
+
+async def test_setup_verifies_tls_on_a_pooled_connection(hass: HomeAssistant) -> None:
+    """The check borrows from the pool and returns the connection."""
+    pool = FakePool(FakeConnection(FakeCursor()))
+    entry = MockConfigEntry(domain=DOMAIN, data={**ENTRY_DATA, CONF_USE_TLS: True})
+    entry.add_to_hass(hass)
+
+    verify = AsyncMock()
+    with (
+        patch_create_pool(pool),
+        patch("custom_components.mysql_query.async_verify_tls", verify),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert verify.await_count == 1
+    assert pool.acquired == 1
+    assert pool.released == 1
+
+
+async def test_setup_skips_the_tls_check_when_tls_is_off(hass: HomeAssistant) -> None:
+    """Without the option the extra round trip is never made."""
+    pool = FakePool(FakeConnection(FakeCursor()))
+    entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
+    entry.add_to_hass(hass)
+
+    verify = AsyncMock()
+    with (
+        patch_create_pool(pool),
+        patch("custom_components.mysql_query.async_verify_tls", verify),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert verify.await_count == 0
+    assert pool.acquired == 0

@@ -43,7 +43,13 @@ from .const import (
     SERVICE_EXECUTE,
     SERVICE_QUERY,
 )
-from .db import async_create_pool, error_details
+from .db import (
+    TLSUnavailableError,
+    async_create_pool,
+    async_verify_tls,
+    error_details,
+    tls_requested,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -350,6 +356,23 @@ async def async_setup_entry(  # noqa: PLR0915
             exc_info=True,
         )
         return False
+
+    # Asking for TLS is not the same as getting it: aiomysql skips the
+    # handshake when the server does not advertise it and carries on in plain
+    # text. Fail the setup instead, so a connection that is supposed to be
+    # encrypted never quietly stops being encrypted.
+    if tls_requested(config):
+        try:
+            conn = await pool.acquire()
+            try:
+                await async_verify_tls(conn)
+            finally:
+                pool.release(conn)
+        except (TLSUnavailableError, aiomysql.Error, OSError) as err:
+            _LOGGER.error("TLS is enabled for %s but %s", entry.title, err)
+            pool.close()
+            await pool.wait_closed()
+            return False
 
     entry.runtime_data = MySQLInstance(pool=pool, config=config, title=entry.title)
 

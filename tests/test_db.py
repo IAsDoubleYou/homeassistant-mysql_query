@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import ssl
+from unittest.mock import AsyncMock, patch
+
 from aiomysql import Error as MySQLError
 import pytest
 
@@ -15,10 +18,18 @@ from custom_components.mysql_query.const import (
     CONF_MYSQL_PORT,
     CONF_MYSQL_TIMEOUT,
     CONF_MYSQL_USERNAME,
+    CONF_USE_TLS,
     DEFAULT_MYSQL_PORT,
     DEFAULT_MYSQL_TIMEOUT,
 )
-from custom_components.mysql_query.db import build_connection_kwargs, error_details
+from custom_components.mysql_query.db import (
+    TLSUnavailableError,
+    async_test_connection,
+    async_verify_tls,
+    build_connection_kwargs,
+    error_details,
+    tls_requested,
+)
 
 BASE_CONFIG = {
     CONF_MYSQL_HOST: "localhost",
@@ -93,3 +104,123 @@ def test_error_details_handles_client_side_errors() -> None:
         None,
         "Connection refused",
     )
+
+
+class _StatusCursor:
+    """Cursor stand-in that answers one SHOW STATUS query.
+
+    The shared FakeCursor is built for result sets and reports fetchone() as a
+    truncation probe, which is the opposite of what this check needs.
+    """
+
+    def __init__(self, row: tuple | None) -> None:
+        """Return ``row`` for the single query this cursor answers."""
+        self.row = row
+        self.executed: list[str] = []
+
+    async def execute(self, query: str, args: object = None) -> None:
+        """Record the statement."""
+        self.executed.append(query)
+
+    async def fetchone(self) -> tuple | None:
+        """Return the prepared status row."""
+        return self.row
+
+    async def __aenter__(self) -> _StatusCursor:
+        """Enter the cursor context."""
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> bool:
+        """Leave the cursor context."""
+        return False
+
+
+class _TLSConnection:
+    """Connection stand-in that reports one Ssl_cipher status row."""
+
+    def __init__(self, row: tuple | None) -> None:
+        """Hand out a cursor answering with ``row``."""
+        self.cursor_obj = _StatusCursor(row)
+        self.ensure_closed_called = False
+
+    def cursor(self, *cursor_classes: type) -> _StatusCursor:
+        """Return the prepared cursor."""
+        return self.cursor_obj
+
+    async def ensure_closed(self) -> None:
+        """Record that the connection was closed."""
+        self.ensure_closed_called = True
+
+
+def test_tls_is_off_by_default() -> None:
+    """Without the option no context is built, so the driver never offers TLS.
+
+    aiomysql runs the handshake only when a context is present, so leaving the
+    key out is what keeps an existing installation on exactly the connection
+    it had before the option existed.
+    """
+    assert "ssl" not in build_connection_kwargs(BASE_CONFIG)
+    assert tls_requested(BASE_CONFIG) is False
+
+
+def test_tls_off_explicitly_is_the_same_as_unset() -> None:
+    """Turning the option off leaves the connection arguments untouched."""
+    assert "ssl" not in build_connection_kwargs({**BASE_CONFIG, CONF_USE_TLS: False})
+
+
+def test_tls_builds_an_unverified_context() -> None:
+    """Turning the option on hands the driver a context that does not verify.
+
+    A database on a home network nearly always has a self signed certificate,
+    so verification would make the option unusable. Asserted here because
+    tightening or loosening this should never happen unnoticed.
+    """
+    context = build_connection_kwargs({**BASE_CONFIG, CONF_USE_TLS: True})["ssl"]
+
+    assert isinstance(context, ssl.SSLContext)
+    assert context.check_hostname is False
+    assert context.verify_mode is ssl.CERT_NONE
+
+
+async def test_verify_tls_accepts_an_encrypted_session() -> None:
+    """A session reporting a cipher passes the check."""
+    conn = _TLSConnection(("Ssl_cipher", "TLS_AES_256_GCM_SHA384"))
+
+    await async_verify_tls(conn)
+
+    assert conn.cursor_obj.executed == ["SHOW STATUS LIKE 'Ssl_cipher'"]
+
+
+@pytest.mark.parametrize("row", [("Ssl_cipher", ""), None])
+async def test_verify_tls_rejects_a_plain_text_session(row: tuple | None) -> None:
+    """An empty cipher means the server never encrypted the connection.
+
+    This is the case aiomysql does not report: it skips the handshake when the
+    server does not advertise TLS and carries on in plain text.
+    """
+    with pytest.raises(TLSUnavailableError):
+        await async_verify_tls(_TLSConnection(row))
+
+
+async def test_test_connection_checks_tls_when_asked() -> None:
+    """The config flow path verifies the session it just opened."""
+    conn = _TLSConnection(("Ssl_cipher", ""))
+
+    with (
+        patch("aiomysql.connect", AsyncMock(return_value=conn)),
+        pytest.raises(TLSUnavailableError),
+    ):
+        await async_test_connection({**BASE_CONFIG, CONF_USE_TLS: True})
+
+    assert conn.ensure_closed_called, "connection left open on the error path"
+
+
+async def test_test_connection_skips_the_check_when_tls_is_off() -> None:
+    """Without TLS the extra round trip is not made at all."""
+    conn = _TLSConnection(("Ssl_cipher", ""))
+
+    with patch("aiomysql.connect", AsyncMock(return_value=conn)):
+        await async_test_connection(BASE_CONFIG)
+
+    assert conn.cursor_obj.executed == []
+    assert conn.ensure_closed_called

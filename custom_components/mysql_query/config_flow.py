@@ -23,13 +23,15 @@ from .const import (
     CONF_MYSQL_TIMEOUT,
     CONF_MYSQL_USERNAME,
     CONF_ROW_LIMIT,
+    CONF_USE_TLS,
     DEFAULT_MYSQL_AUTOCOMMIT,
     DEFAULT_MYSQL_PORT,
     DEFAULT_MYSQL_TIMEOUT,
     DEFAULT_ROW_LIMIT,
+    DEFAULT_USE_TLS,
     DOMAIN,
 )
-from .db import async_test_connection, error_details
+from .db import TLSUnavailableError, async_test_connection, error_details
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,6 +65,10 @@ async def _async_validate(config: dict[str, Any]) -> tuple[str | None, str]:
     """
     try:
         await async_test_connection(config)
+    except TLSUnavailableError as err:
+        # The settings themselves are fine; the server just did not encrypt.
+        _LOGGER.error("TLS requested but not established: %s", err)
+        return "tls_unavailable", ""
     except (Error, OSError, TimeoutError) as err:
         errno, _ = error_details(err)
         if errno == _ERRNO_ACCESS_DENIED:
@@ -119,6 +125,9 @@ def get_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Optional(
                 CONF_ROW_LIMIT, default=defaults.get(CONF_ROW_LIMIT, DEFAULT_ROW_LIMIT)
             ): int,
+            vol.Optional(
+                CONF_USE_TLS, default=defaults.get(CONF_USE_TLS, DEFAULT_USE_TLS)
+            ): bool,
         }
     )
 

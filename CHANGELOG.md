@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- An **Encrypt the connection (TLS)** option on every connection, in the setup form as well as under Configure. It encrypts the traffic to the database, which keeps queries, results and the login from being read off the network.
+
+  The server certificate is deliberately **not** verified, neither its signature nor its hostname: a database on a home network nearly always carries a self signed certificate, and demanding a verifiable one would make the option unusable for most setups. So this defends against passive eavesdropping, not against an attacker who can actively intercept the connection and present a certificate of their own.
+
+  **The option defaults to off**, so an existing connection keeps working exactly as it did. Turning it on against a server that has no TLS configured fails with a message saying so, in the config screens and at startup, instead of quietly connecting unencrypted. That silent fallback is the driver's own behaviour: aiomysql runs the handshake only when the server advertises TLS and otherwise carries on in plain text without reporting it, so the integration checks the session status afterwards and refuses the connection when it turns out not to be encrypted.
+
+  **TODO for a future release: flip the default to on.** That is a breaking change for every installation whose database has no certificate, so it needs its own release and a note in the release notes telling people how to turn it back off. The reminder also sits next to `DEFAULT_USE_TLS` in `const.py`.
+
 ## [2.2.0] - 2026-08-22
 
 This release is about the configuration screens telling you what went wrong, and about the connection a service call lands on when it does not name one. It also puts the test suite and the linter in CI, where nothing was running them before.
