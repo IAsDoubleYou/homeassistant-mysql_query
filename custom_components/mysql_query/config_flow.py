@@ -68,7 +68,7 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
-            # Forceer de default limiet als het veld leeg is of ongeldig
+            # Fall back to the default limit when the field is empty or invalid
             if not user_input.get(CONF_ROW_LIMIT) or user_input[CONF_ROW_LIMIT] < 1:
                 user_input[CONF_ROW_LIMIT] = DEFAULT_ROW_LIMIT
             
@@ -96,7 +96,7 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_import(self, import_data: dict[str, Any]) -> ConfigFlowResult:
         """Handle import from configuration.yaml."""
-        # Voeg de default limiet toe bij import als deze ontbreekt
+        # Add the default limit on import when it is missing
         if CONF_ROW_LIMIT not in import_data:
             import_data[CONF_ROW_LIMIT] = DEFAULT_ROW_LIMIT
 
@@ -130,7 +130,7 @@ class MySQLQueryOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Manage the settings via the Configure button."""
         if user_input is not None:
-            # Forceer de default limiet als het veld leeg is of ongeldig
+            # Fall back to the default limit when the field is empty or invalid
             if not user_input.get(CONF_ROW_LIMIT) or user_input[CONF_ROW_LIMIT] < 1:
                 user_input[CONF_ROW_LIMIT] = DEFAULT_ROW_LIMIT
                 
