@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-08-23
+
+**Breaking:** reading and writing are now split across the two services. `query` runs only SELECT and WITH statements, `execute` runs only statements that change data. See the migration note below; it is a one-word change per call.
+
+### Changed
+
+- **`mysql_query.query` refuses anything that is not a SELECT or a WITH statement**, and the error names `mysql_query.execute` as where the call belongs. Until now both services ran anything and differed only in what they returned, so a service called `query` would happily run a DELETE. That is the accident this release is about. This is breaking for calls that have used `query` for writes since 2.1.0 (commit `eb11f99`, "Support for all SQL query types"), where the original SELECT-only guard was removed.
+- **`mysql_query.execute` refuses a SELECT or WITH statement**, and the error names `mysql_query.query`. The split is symmetrical on purpose: each service does one thing, and reaching for the wrong one always tells you which one you wanted.
+- **A call carrying more than one statement is refused, on both services.** aiomysql switches on `CLIENT.MULTI_STATEMENTS` unconditionally and offers no way to turn it off through its public API, so `SELECT 1; DELETE FROM states` used to run both statements while only the first reported a result, and the integration reported it as a successful SELECT. A trailing semicolon is still accepted, and so is a semicolon inside a quoted value.
+- **`query` now returns the metadata `execute` returned for a SELECT**: `succeeded`, `rows_found`, `column_names`, `execution_time_ms` and `error` travel alongside `result`. Nothing is lost by moving a read from `execute` to `query`, and the shape does not change between a successful and a failed call.
+
+### Added
+
+- **A read-only option per connection.** When it is on, `mysql_query.execute` is refused on that connection whatever the statement contains. This catches the other half of the problem: the service split catches reaching for the wrong verb, this catches reaching for the wrong connection. It needs no statement analysis, so nothing can be phrased around it. Off by default, so an existing connection is unaffected.
+- **`raise_on_error` on both services**, with the default that keeps each one behaving as it always did: `true` for `query`, which stops the caller on a database error, and `false` for `execute`, which reports the error in its response as `succeeded: false`. Either can be told to do the other, which is what a call moving between the two services needs.
+
+### Migration
+
+- Using `query` for writes: change the service name to `mysql_query.execute`. The fields `query`, `values`, `db4query` and `config_entry` are identical and the rows stay under `result`. Add `raise_on_error: true` if you relied on a failure stopping your automation.
+- Using `execute` for reads: change the service name to `mysql_query.query`. The metadata you used `execute` for comes with it.
+- Reading through `query` and writing through `execute` already: nothing to do.
+- Sending several statements in one call: split them into separate calls.
+
+### Note on what the guard is not
+
+The check reads the first keyword of the statement after stripping comments; it guards against reaching for the wrong service, not against a determined write. A SELECT can still write through `INTO OUTFILE` or a stored function with side effects, and MySQL 8 accepts a CTE in front of an UPDATE or DELETE. Read-only rights on the database user remain the boundary that actually holds.
+
 ## [2.3.0] - 2026-08-22
 
 This release adds an option to encrypt the connection to the database. Read the note about what it does and does not protect against before turning it on.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from unittest.mock import AsyncMock, patch
 
 from aiomysql import Error as MySQLError
@@ -15,12 +16,14 @@ from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.mysql_query.const import (
     ATTR_QUERY,
+    ATTR_RAISE_ON_ERROR,
     ATTR_VALUES,
     CONF_MYSQL_DB,
     CONF_MYSQL_HOST,
     CONF_MYSQL_PASSWORD,
     CONF_MYSQL_PORT,
     CONF_MYSQL_USERNAME,
+    CONF_READONLY_CONNECTION,
     CONF_ROW_LIMIT,
     CONF_USE_TLS,
     DOMAIN,
@@ -84,7 +87,7 @@ async def test_execute_service_select_query(hass: HomeAssistant) -> None:
 
     response = await hass.services.async_call(
         DOMAIN,
-        SERVICE_EXECUTE,
+        SERVICE_QUERY,
         {ATTR_QUERY: "SELECT * FROM test"},
         blocking=True,
         return_response=True,
@@ -94,9 +97,6 @@ async def test_execute_service_select_query(hass: HomeAssistant) -> None:
     assert response["result"] == [{"id": 1, "name": "test"}]
     assert response["column_names"] == ["id", "name"]
     assert response["rows_found"] == 1
-    assert response["rows_returned"] == 1
-    assert response["rows_affected"] is None
-    assert response["statement"] == "SELECT * FROM test"
     assert cursor.closed
 
 
@@ -114,7 +114,11 @@ async def test_query_service_returns_minimal_payload(hass: HomeAssistant) -> Non
         return_response=True,
     )
 
-    assert response == {"result": [{"id": 1}]}
+    assert response["result"] == [{"id": 1}]
+    assert response["succeeded"] is True
+    assert response["column_names"] == ["id"]
+    assert response["rows_found"] == 1
+    assert isinstance(response["execution_time_ms"], float)
 
 
 async def test_execute_service_without_values_binds_nothing(
@@ -125,7 +129,7 @@ async def test_execute_service_without_values_binds_nothing(
 
     await _setup_entry(hass, FakePool(FakeConnection(cursor)))
 
-    query = "SELECT * FROM test WHERE name LIKE '%a%'"
+    query = "DELETE FROM test WHERE name LIKE '%a%'"
     await hass.services.async_call(
         DOMAIN,
         SERVICE_EXECUTE,
@@ -151,7 +155,7 @@ async def test_execute_service_empty_values_binds_nothing(
     await hass.services.async_call(
         DOMAIN,
         SERVICE_EXECUTE,
-        {ATTR_QUERY: "SELECT * FROM test WHERE name LIKE '%a%'", ATTR_VALUES: []},
+        {ATTR_QUERY: "DELETE FROM test WHERE name LIKE '%a%'", ATTR_VALUES: []},
         blocking=True,
         return_response=True,
     )
@@ -166,9 +170,7 @@ async def test_execute_service_binds_rendered_values(hass: HomeAssistant) -> Non
 
     await _setup_entry(hass, FakePool(FakeConnection(cursor)))
 
-    query = (
-        "SELECT * FROM test WHERE temp = %s AND count = %s AND ok = %s AND note = %s"
-    )
+    query = "UPDATE test SET temp = %s, count = %s, ok = %s, note = %s"
     await hass.services.async_call(
         DOMAIN,
         SERVICE_EXECUTE,
@@ -204,7 +206,7 @@ async def test_execute_service_passes_non_template_values_unchanged(
         DOMAIN,
         SERVICE_EXECUTE,
         {
-            ATTR_QUERY: "SELECT * FROM test WHERE a = %s AND b = %s AND c = %s",
+            ATTR_QUERY: "DELETE FROM test WHERE a = %s AND b = %s AND c = %s",
             # "42" and "1,2" would become an int and a tuple if literal strings
             # were parsed as well, so they must be left alone.
             ATTR_VALUES: ["42", "1,2", 7],
@@ -230,7 +232,11 @@ async def test_query_service_binds_rendered_values(hass: HomeAssistant) -> None:
         return_response=True,
     )
 
-    assert response == {"result": [{"id": 1}]}
+    assert response["result"] == [{"id": 1}]
+    assert response["succeeded"] is True
+    assert response["column_names"] == ["id"]
+    assert response["rows_found"] == 1
+    assert isinstance(response["execution_time_ms"], float)
     assert cursor.executed_args == [(1,)]
 
 
@@ -245,7 +251,7 @@ async def test_execute_service_single_value_is_wrapped_in_a_list(
     await hass.services.async_call(
         DOMAIN,
         SERVICE_EXECUTE,
-        {ATTR_QUERY: "SELECT * FROM test WHERE id = %s", ATTR_VALUES: "5"},
+        {ATTR_QUERY: "DELETE FROM test WHERE id = %s", ATTR_VALUES: "5"},
         blocking=True,
         return_response=True,
     )
@@ -261,7 +267,7 @@ async def test_execute_service_rejects_non_scalar_values(hass: HomeAssistant) ->
         await hass.services.async_call(
             DOMAIN,
             SERVICE_EXECUTE,
-            {ATTR_QUERY: "SELECT * FROM test WHERE id = %s", ATTR_VALUES: [{"a": 1}]},
+            {ATTR_QUERY: "DELETE FROM test WHERE id = %s", ATTR_VALUES: [{"a": 1}]},
             blocking=True,
             return_response=True,
         )
@@ -278,7 +284,7 @@ async def test_execute_service_broken_template_reports_error(
     response = await hass.services.async_call(
         DOMAIN,
         SERVICE_EXECUTE,
-        {ATTR_QUERY: "SELECT * FROM test WHERE id = %s", ATTR_VALUES: ["{{ 1 / 0 }}"]},
+        {ATTR_QUERY: "DELETE FROM test WHERE id = %s", ATTR_VALUES: ["{{ 1 / 0 }}"]},
         blocking=True,
         return_response=True,
     )
@@ -363,7 +369,7 @@ async def test_execute_service_row_limit_warns_on_truncation(
 
     await hass.services.async_call(
         DOMAIN,
-        SERVICE_EXECUTE,
+        SERVICE_QUERY,
         {ATTR_QUERY: "SELECT * FROM test"},
         blocking=True,
         return_response=True,
@@ -488,3 +494,264 @@ async def test_setup_skips_the_tls_check_when_tls_is_off(hass: HomeAssistant) ->
     assert entry.state is ConfigEntryState.LOADED
     assert verify.await_count == 0
     assert pool.acquired == 0
+
+
+async def test_query_refuses_a_write_statement(hass: HomeAssistant) -> None:
+    """A write through query is refused, and the error names execute.
+
+    This is the whole point of the split: query used to run anything, so the
+    message has to say where the call belongs now.
+    """
+    pool = FakePool(FakeConnection(FakeCursor()))
+    await _setup_entry(hass, pool)
+
+    with pytest.raises(
+        HomeAssistantError, match=re.escape("mysql_query.execute")
+    ) as err:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_QUERY,
+            {ATTR_QUERY: "DELETE FROM test"},
+            blocking=True,
+            return_response=True,
+        )
+
+    assert "SELECT and WITH" in str(err.value)
+    # Refused before anything was borrowed from the pool.
+    assert pool.acquired == 0
+
+
+async def test_execute_refuses_a_read_statement(hass: HomeAssistant) -> None:
+    """A SELECT through execute is refused, and the error names query."""
+    pool = FakePool(FakeConnection(_select_cursor(rows=[], columns=["id"])))
+    await _setup_entry(hass, pool)
+
+    with pytest.raises(HomeAssistantError, match=re.escape("mysql_query.query")):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_EXECUTE,
+            {ATTR_QUERY: "SELECT * FROM test"},
+            blocking=True,
+            return_response=True,
+        )
+
+    assert pool.acquired == 0
+
+
+@pytest.mark.parametrize("service", [SERVICE_QUERY, SERVICE_EXECUTE])
+async def test_multiple_statements_are_refused(
+    hass: HomeAssistant, service: str
+) -> None:
+    """Two statements in one call are refused on both services.
+
+    aiomysql turns on CLIENT.MULTI_STATEMENTS and offers no way to turn it
+    off, so the driver would run both while only the first reports a result.
+    """
+    pool = FakePool(FakeConnection(FakeCursor()))
+    await _setup_entry(hass, pool)
+
+    with pytest.raises(HomeAssistantError, match="exactly one statement"):
+        await hass.services.async_call(
+            DOMAIN,
+            service,
+            {ATTR_QUERY: "SELECT 1; DELETE FROM test"},
+            blocking=True,
+            return_response=True,
+        )
+
+    assert pool.acquired == 0
+
+
+async def test_a_trailing_semicolon_is_not_a_second_statement(
+    hass: HomeAssistant,
+) -> None:
+    """The habit of ending a statement with a semicolon keeps working."""
+    await _setup_entry(hass, FakePool(FakeConnection(_select_cursor([], ["id"]))))
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_QUERY,
+        {ATTR_QUERY: "SELECT * FROM test;"},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert response["succeeded"] is True
+
+
+async def test_query_reports_the_metadata_execute_used_to(
+    hass: HomeAssistant,
+) -> None:
+    """A SELECT through query carries what it carried through execute.
+
+    Moving a read from execute to query is the other half of the migration,
+    so the fields that made execute attractive for a SELECT have to be here.
+    """
+    cursor = _select_cursor(rows=[{"id": 1, "name": "a"}], columns=["id", "name"])
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_QUERY,
+        {ATTR_QUERY: "SELECT * FROM test"},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert set(response) == {
+        "result",
+        "succeeded",
+        "execution_time_ms",
+        "rows_found",
+        "column_names",
+        # Travels along on a successful call too, so the shape a template
+        # sees does not change between success and failure.
+        "error",
+    }
+    assert response["result"] == [{"id": 1, "name": "a"}]
+    assert response["column_names"] == ["id", "name"]
+    assert response["rows_found"] == 1
+    assert response["succeeded"] is True
+
+
+async def test_readonly_connection_refuses_execute(hass: HomeAssistant) -> None:
+    """A connection marked read-only refuses execute whatever the statement.
+
+    No classifier involved: the boundary is the connection, so a perfectly
+    valid write aimed at the wrong connection is stopped here.
+    """
+    pool = FakePool(FakeConnection(FakeCursor()))
+    await _setup_entry(hass, pool, data={**ENTRY_DATA, CONF_READONLY_CONNECTION: True})
+
+    with pytest.raises(HomeAssistantError, match="read-only"):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_EXECUTE,
+            {ATTR_QUERY: "INSERT INTO test (name) VALUES ('a')"},
+            blocking=True,
+            return_response=True,
+        )
+
+    assert pool.acquired == 0
+
+
+async def test_readonly_connection_still_allows_query(hass: HomeAssistant) -> None:
+    """Reading from a read-only connection is exactly what it is for."""
+    await _setup_entry(
+        hass,
+        FakePool(FakeConnection(_select_cursor([{"id": 1}], ["id"]))),
+        data={**ENTRY_DATA, CONF_READONLY_CONNECTION: True},
+    )
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_QUERY,
+        {ATTR_QUERY: "SELECT * FROM test"},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert response["result"] == [{"id": 1}]
+
+
+async def test_execute_is_allowed_when_the_flag_is_off(hass: HomeAssistant) -> None:
+    """The default leaves an existing connection able to write."""
+    await _setup_entry(hass, FakePool(FakeConnection(FakeCursor(rowcount=1))))
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_EXECUTE,
+        {ATTR_QUERY: "INSERT INTO test (name) VALUES ('a')"},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert response["succeeded"] is True
+
+
+async def test_execute_raises_on_error_when_asked(hass: HomeAssistant) -> None:
+    """raise_on_error gives a migrating caller the behaviour query had."""
+    cursor = FakeCursor(error=MySQLError(1064, "Syntax error"))
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    with pytest.raises(HomeAssistantError, match="Syntax error"):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_EXECUTE,
+            {ATTR_QUERY: "INSERT INTO nope VALUES (1)", ATTR_RAISE_ON_ERROR: True},
+            blocking=True,
+            return_response=True,
+        )
+
+
+async def test_execute_reports_errors_in_the_response_by_default(
+    hass: HomeAssistant,
+) -> None:
+    """Without the flag a failure stays in the response, as it always did."""
+    cursor = FakeCursor(error=MySQLError(1064, "Syntax error"))
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_EXECUTE,
+        {ATTR_QUERY: "INSERT INTO nope VALUES (1)"},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert response["succeeded"] is False
+    assert response["error"]["errno"] == 1064
+
+
+async def test_raise_on_error_defaults_differ_per_service(
+    hass: HomeAssistant,
+) -> None:
+    """Each service keeps the failure behaviour it always had.
+
+    query stops the caller, execute reports the failure in its response. The
+    switch exists on both, but the defaults are what make an existing call
+    behave the same as before.
+    """
+    cursor = FakeCursor(error=MySQLError(1064, "Syntax error"))
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    with pytest.raises(HomeAssistantError, match="Syntax error"):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_QUERY,
+            {ATTR_QUERY: "SELECT * FROM nope"},
+            blocking=True,
+            return_response=True,
+        )
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_EXECUTE,
+        {ATTR_QUERY: "INSERT INTO nope VALUES (1)"},
+        blocking=True,
+        return_response=True,
+    )
+    assert response["succeeded"] is False
+    assert response["error"]["errno"] == 1064
+
+
+async def test_query_reports_in_the_response_when_asked(
+    hass: HomeAssistant,
+) -> None:
+    """Query can be told to report a failure instead of raising."""
+    cursor = FakeCursor(error=MySQLError(1146, "No such table"))
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_QUERY,
+        {ATTR_QUERY: "SELECT * FROM nope", ATTR_RAISE_ON_ERROR: False},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert response["succeeded"] is False
+    assert response["error"]["errno"] == 1146
+    # Still the query shape, not the full execute one.
+    assert "rows_affected" not in response
+    assert response["result"] == []

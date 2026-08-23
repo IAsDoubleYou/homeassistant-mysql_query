@@ -5,15 +5,17 @@
 [![GitHub All Releases][downloads_total_shield]][releases]
 [![Community Forum][community_forum_shield]][community_forum]
 
-A Home Assistant custom component that provides ```Responding services``` to execute MySQL database queries. The results are available as an iterable data structure.
+A Home Assistant custom component that talks to a MySQL or MariaDB database through two ```Responding services```: ```mysql_query.query``` reads with a SELECT and hands you the rows, and ```mysql_query.execute``` writes with an INSERT, UPDATE, DELETE or DDL statement and hands you what it changed. Both return an iterable data structure you can use straight from a template.
 
 ## Key Features
 
 - **UI Configuration**: Modern setup and management through the Home Assistant Integrations page (Config Flow).
-- **Two Service Modes**: Choose between a simple result list (```query```) or an extended metadata response (```execute```).
+- **Reading and writing are separate**: ```query``` runs only SELECT and WITH statements, ```execute``` runs only statements that change data. Reach for the wrong one and you get an error naming the right one, instead of a surprise.
 - **Parameterized queries**: pass values separately with ```values``` and ```%s``` placeholders, so the database escapes them for you and templates keep their data type.
 - **Stability Protection**: Built-in row limiting to prevent Home Assistant from hanging on large result sets.
-- Support for all SQL query types (SELECT, INSERT, UPDATE, DELETE, etc.).
+- Support for all SQL statement types (SELECT, INSERT, UPDATE, DELETE, DDL), split across the two services.
+- **Read-only connections**: mark a connection as read-only and ```execute``` is refused on it entirely, so a write aimed at the wrong connection cannot land.
+- **One statement per call**: a call carrying several statements separated by a semicolon is refused, because the driver would run all of them while only the first reports a result.
 - **Multiple database support**: Configure multiple connections via UI and select them in service calls.
 - **Dynamic Overrides**: Query another database on the same server per individual call using ```db4query```.
 - **JSON-safe results**: MySQL types such as ```DECIMAL```, ```DATE``` and ```TIME``` are converted automatically.
@@ -52,6 +54,41 @@ A Home Assistant custom component that provides ```Responding services``` to exe
 
    If you end up with ```custom_components/mysql_query/mysql_query/__init__.py```, move the files one level up.
 5. Restart Home Assistant.
+
+---
+
+## Upgrading to 3.0.0
+
+**This release splits reading and writing across the two services.** Before 3.0.0 both services ran anything, and they differed only in what they returned. That meant a service called ```query``` would happily run a ```DELETE```, which is exactly the sort of accident a name should prevent.
+
+From 3.0.0 on, ```mysql_query.query``` runs only ```SELECT``` and ```WITH``` statements, and ```mysql_query.execute``` runs only statements that change data. Reach for the wrong one and the error tells you which one to use.
+
+**If you use ```query``` for writes**, change the service name to ```mysql_query.execute```. Nothing else changes: the fields ```query```, ```values```, ```db4query``` and ```config_entry``` are identical, and the rows are still under ```result```. One thing to know: ```query``` stops your automation when a statement fails, while ```execute``` reports the failure in its response as ```succeeded: false```. If you were relying on the automation stopping, add ```raise_on_error: true``` to the call.
+
+Both services accept ```raise_on_error```; only the default differs, so a call that does not mention it behaves the way that service always did. ```query``` defaults to ```true``` and ```execute``` to ```false```, and either can be told to do the other.
+
+```yaml
+# Before (2.x)
+action: mysql_query.query
+data:
+  query: DELETE FROM readings WHERE logged_at < %s
+  values: ["{{ (now() - timedelta(days=30)).isoformat() }}"]
+
+# After (3.0.0)
+action: mysql_query.execute
+data:
+  query: DELETE FROM readings WHERE logged_at < %s
+  values: ["{{ (now() - timedelta(days=30)).isoformat() }}"]
+  raise_on_error: true   # only if you relied on query aborting on failure
+```
+
+**If you use ```execute``` for reads**, change the service name to ```mysql_query.query```. You lose nothing: ```query``` now returns ```succeeded```, ```rows_found```, ```column_names``` and ```execution_time_ms``` alongside ```result```, which are the fields that made ```execute``` worth using for a ```SELECT```.
+
+**If you only read through ```query``` and write through ```execute```**, you are already done; nothing changes for you.
+
+**One more thing that changes for both services.** A call carrying several statements separated by a semicolon is now refused. The driver has multi-statement support switched on and cannot be told otherwise, so ```SELECT 1; DELETE FROM states``` used to run *both* while reporting only the result of the first. A trailing semicolon is still fine, and so is a semicolon inside a quoted value.
+
+**What this protection is not.** The check reads the first keyword of the statement; it is a guard against reaching for the wrong service, not a security boundary. A ```SELECT``` can still write through ```INTO OUTFILE``` or a stored function with side effects, and MySQL 8 accepts a CTE in front of an ```UPDATE```. If a connection must never write, give its database user ```SELECT``` rights only, and consider marking the connection [read-only](#read-only-connections).
 
 ---
 
@@ -108,8 +145,19 @@ All fields below appear both in the setup form and in the options form. The **Ke
 | **Autocommit** | ```mysql_autocommit``` | No | ```true``` | When enabled, every statement is committed immediately. With autocommit disabled the integration still commits explicitly after a successful non-SELECT statement, so writes are not lost. |
 | **Row Limit (Safety Cap)** | ```mysql_row_limit``` | No | ```1000``` | Maximum number of rows a single SELECT may return to Home Assistant. This is a memory safety net, not a SQL ```LIMIT```. Values below ```1``` fall back to the default. |
 | **Encrypt the connection (TLS)** | ```mysql_use_tls``` | No | ```false``` | Encrypts the traffic between Home Assistant and the database. See [Encrypting the connection](#encrypting-the-connection). |
+| **Read-only connection** | ```mysql_readonly``` | No | ```false``` | Refuses ```mysql_query.execute``` on this connection whatever the statement says. See [Read-only connections](#read-only-connections). |
 
 ### Stability & Performance
+
+### Read-only connections
+
+A connection can be marked **Read-only**, in the setup form and under **Configure**. When it is on, every call to ```mysql_query.execute``` on that connection is refused, no matter what the statement contains.
+
+This is a different kind of protection from the split between the two services. The service split catches reaching for the wrong *verb*: a ```DELETE``` sent to ```query``` is refused because ```query``` does not write. The read-only flag catches reaching for the wrong *connection*: a perfectly well-formed ```DELETE``` sent to ```execute``` is refused because that connection is not supposed to be written to at all. It needs no statement analysis and has no way around it.
+
+It exists for the connection you created to feed dashboards or reports. Mark it read-only and a write meant for your application database cannot land in it by mistake, however the statement is spelled.
+
+**Off by default**, so an existing connection keeps working exactly as it did. Turning it on affects only ```execute```; ```query``` keeps working, which is the entire point.
 
 ### Encrypting the connection
 
@@ -175,8 +223,8 @@ The integration registers two services. Both are **responding services**: they r
 
 | Service | Use it for | Returns |
 | :--- | :--- | :--- |
-| ```mysql_query.query``` | Reading data (SELECT) with the least amount of ceremony. | Only the list of rows, under the key ```result```. |
-| ```mysql_query.execute``` | Everything, and especially writes (INSERT/UPDATE/DELETE/CREATE/DROP). | The rows plus full metadata: row counts, generated id, timing and errors. |
+| ```mysql_query.query``` | Reading: ```SELECT``` and ```WITH```. Refuses anything that changes data. | The rows under ```result```, plus ```succeeded```, ```rows_found```, ```column_names```, ```execution_time_ms``` and ```error```. Raises on a database error unless ```raise_on_error: false```. |
+| ```mysql_query.execute``` | Writing: ```INSERT```, ```UPDATE```, ```DELETE```, ```CREATE```, ```DROP```. Refuses ```SELECT``` and ```WITH```. | Full metadata: row counts, generated id, timing and errors. Reports a database error in the response instead of raising, unless ```raise_on_error: true```. |
 
 Both services accept exactly the same four fields:
 

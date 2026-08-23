@@ -21,7 +21,7 @@ from custom_components.mysql_query.const import (
     CONF_MYSQL_USERNAME,
     CONF_ROW_LIMIT,
     DOMAIN,
-    SERVICE_EXECUTE,
+    SERVICE_QUERY,
 )
 from tests.conftest import FakeConnection, FakeCursor, FakePool, patch_create_pool
 
@@ -139,7 +139,7 @@ async def test_execute_service_response_is_json_serializable(
 
     response = await hass.services.async_call(
         DOMAIN,
-        SERVICE_EXECUTE,
+        SERVICE_QUERY,
         {ATTR_QUERY: "SELECT * FROM orders"},
         blocking=True,
         return_response=True,

@@ -21,6 +21,7 @@ from custom_components.mysql_query.const import (
     CONF_MYSQL_PORT,
     CONF_MYSQL_TIMEOUT,
     CONF_MYSQL_USERNAME,
+    CONF_READONLY_CONNECTION,
     CONF_ROW_LIMIT,
     CONF_USE_TLS,
     DEFAULT_ROW_LIMIT,
@@ -552,3 +553,54 @@ async def test_options_flow_turns_tls_on(hass: HomeAssistant) -> None:
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.data[CONF_USE_TLS] is True
+
+
+async def test_user_flow_defaults_readonly_to_off(hass: HomeAssistant) -> None:
+    """An existing connection was never read-only, so the default must not be."""
+    with patch_driver():
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        defaults = {key.schema: key.default() for key in result["data_schema"].schema}
+        assert defaults[CONF_READONLY_CONNECTION] is False
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], USER_INPUT
+        )
+        await hass.async_block_till_done()
+
+    assert result["data"].get(CONF_READONLY_CONNECTION, False) is False
+
+
+async def test_user_flow_stores_the_readonly_choice(hass: HomeAssistant) -> None:
+    """Marking a connection read-only at setup time is remembered."""
+    with patch_driver():
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {**USER_INPUT, CONF_READONLY_CONNECTION: True}
+        )
+        await hass.async_block_till_done()
+
+    assert result["data"][CONF_READONLY_CONNECTION] is True
+
+
+async def test_options_flow_can_mark_a_connection_readonly(
+    hass: HomeAssistant,
+) -> None:
+    """The flag can be turned on afterwards, without re-adding the connection."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT}
+    )
+    entry.add_to_hass(hass)
+
+    with patch_driver():
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {**USER_INPUT, CONF_READONLY_CONNECTION: True}
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.data[CONF_READONLY_CONNECTION] is True

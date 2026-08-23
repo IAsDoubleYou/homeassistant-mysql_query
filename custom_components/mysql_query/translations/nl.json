@@ -15,10 +15,12 @@
                     "mysql_collation": "Collatie",
                     "mysql_autocommit": "Autocommit",
                     "mysql_row_limit": "Rijlimiet (veiligheidsgrens)",
-                    "mysql_use_tls": "Verbinding versleutelen (TLS)"
+                    "mysql_use_tls": "Verbinding versleutelen (TLS)",
+                    "mysql_readonly": "Alleen-lezen verbinding"
                 },
                 "data_description": {
-                    "mysql_use_tls": "Versleutelt het verkeer naar de database. De server moet TLS geconfigureerd hebben; zonder TLS mislukt de verbinding. Het servercertificaat wordt niet gecontroleerd, dus dit beschermt tegen meelezen op het netwerk, niet tegen een server die zich voordoet als de jouwe. Standaard uit, zodat bestaande installaties blijven werken."
+                    "mysql_use_tls": "Versleutelt het verkeer naar de database. De server moet TLS geconfigureerd hebben; zonder TLS mislukt de verbinding. Het servercertificaat wordt niet gecontroleerd, dus dit beschermt tegen meelezen op het netwerk, niet tegen een server die zich voordoet als de jouwe. Standaard uit, zodat bestaande installaties blijven werken.",
+                    "mysql_readonly": "Weigert de Uitvoeren-actie op deze verbinding, wat het statement ook zegt. Gebruik dit voor een verbinding die alleen dashboards of rapportages voedt, zodat een schrijfactie die op de verkeerde verbinding terechtkomt hier niet landt. Standaard uit."
                 }
             }
         },
@@ -49,10 +51,12 @@
                     "mysql_collation": "Collatie",
                     "mysql_autocommit": "Autocommit",
                     "mysql_row_limit": "Rijlimiet (veiligheidsgrens)",
-                    "mysql_use_tls": "Verbinding versleutelen (TLS)"
+                    "mysql_use_tls": "Verbinding versleutelen (TLS)",
+                    "mysql_readonly": "Alleen-lezen verbinding"
                 },
                 "data_description": {
-                    "mysql_use_tls": "Versleutelt het verkeer naar de database. De server moet TLS geconfigureerd hebben; zonder TLS mislukt de verbinding. Het servercertificaat wordt niet gecontroleerd, dus dit beschermt tegen meelezen op het netwerk, niet tegen een server die zich voordoet als de jouwe. Standaard uit, zodat bestaande installaties blijven werken."
+                    "mysql_use_tls": "Versleutelt het verkeer naar de database. De server moet TLS geconfigureerd hebben; zonder TLS mislukt de verbinding. Het servercertificaat wordt niet gecontroleerd, dus dit beschermt tegen meelezen op het netwerk, niet tegen een server die zich voordoet als de jouwe. Standaard uit, zodat bestaande installaties blijven werken.",
+                    "mysql_readonly": "Weigert de Uitvoeren-actie op deze verbinding, wat het statement ook zegt. Gebruik dit voor een verbinding die alleen dashboards of rapportages voedt, zodat een schrijfactie die op de verkeerde verbinding terechtkomt hier niet landt. Standaard uit."
                 }
             }
         },
@@ -67,7 +71,7 @@
     "services": {
         "execute": {
             "name": "Uitvoeren",
-            "description": "Voert een SQL-query uit en geeft de resultaten terug met volledige metadata.",
+            "description": "Voert een statement uit dat gegevens wijzigt (INSERT, UPDATE, DELETE, DDL) en geeft terug wat het geraakt heeft. Weigert een SELECT- of WITH-statement; gebruik daarvoor Query.",
             "fields": {
                 "query": {
                     "name": "Query",
@@ -84,12 +88,16 @@
                 "config_entry": {
                     "name": "Verbinding",
                     "description": "De databaseverbinding waarop deze query wordt uitgevoerd. Laat leeg om de standaardinstantie te gebruiken."
+                },
+                "raise_on_error": {
+                    "name": "Fout opwerpen",
+                    "description": "Stop de aanroeper met een fout als het statement mislukt, in plaats van dit in de response te melden als succeeded false. Standaard uit bij deze actie; zet het aan voor het gedrag van Query."
                 }
             }
         },
         "query": {
-            "name": "Query (verouderd)",
-            "description": "Voert een SQL-query uit en geeft de resultaten terug (beknopt formaat).",
+            "name": "Query",
+            "description": "Voert een SELECT- of WITH-statement uit en geeft de rijen terug, samen met de metadata over het resultaat. Weigert alles wat gegevens wijzigt; gebruik daarvoor Uitvoeren.",
             "fields": {
                 "query": {
                     "name": "Query",
@@ -106,6 +114,10 @@
                 "config_entry": {
                     "name": "Verbinding",
                     "description": "De databaseverbinding waarop deze query wordt uitgevoerd."
+                },
+                "raise_on_error": {
+                    "name": "Fout opwerpen",
+                    "description": "Stop de aanroeper met een fout als het statement mislukt, in plaats van dit in de response te melden als succeeded false. Standaard aan bij deze actie; zet het uit voor het gedrag van Uitvoeren."
                 }
             }
         }

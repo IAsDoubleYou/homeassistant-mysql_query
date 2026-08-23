@@ -22,11 +22,13 @@ from .const import (
     CONF_MYSQL_PORT,
     CONF_MYSQL_TIMEOUT,
     CONF_MYSQL_USERNAME,
+    CONF_READONLY_CONNECTION,
     CONF_ROW_LIMIT,
     CONF_USE_TLS,
     DEFAULT_MYSQL_AUTOCOMMIT,
     DEFAULT_MYSQL_PORT,
     DEFAULT_MYSQL_TIMEOUT,
+    DEFAULT_READONLY_CONNECTION,
     DEFAULT_ROW_LIMIT,
     DEFAULT_USE_TLS,
     DOMAIN,
@@ -127,6 +129,12 @@ def get_schema(defaults: dict[str, Any]) -> vol.Schema:
             ): int,
             vol.Optional(
                 CONF_USE_TLS, default=defaults.get(CONF_USE_TLS, DEFAULT_USE_TLS)
+            ): bool,
+            vol.Optional(
+                CONF_READONLY_CONNECTION,
+                default=defaults.get(
+                    CONF_READONLY_CONNECTION, DEFAULT_READONLY_CONNECTION
+                ),
             ): bool,
         }
     )

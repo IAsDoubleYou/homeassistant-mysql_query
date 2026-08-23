@@ -224,7 +224,7 @@ async def test_db4query_drops_connection_when_restore_fails(
     response = await hass.services.async_call(
         DOMAIN,
         SERVICE_EXECUTE,
-        {ATTR_QUERY: "SELECT 1", ATTR_DB4QUERY: "other_db"},
+        {ATTR_QUERY: "UPDATE t SET a = 1", ATTR_DB4QUERY: "other_db"},
         blocking=True,
         return_response=True,
     )
@@ -268,8 +268,8 @@ async def test_concurrent_calls_are_serialised_by_the_lock(
     assert pool.acquired == 1
 
     release_first.set()
-    assert await first == {"result": [{"id": 1}]}
-    assert await second == {"result": [{"id": 1}]}
+    assert (await first)["result"] == [{"id": 1}]
+    assert (await second)["result"] == [{"id": 1}]
 
     # Strictly sequential: the first finished before the second started.
     assert started == ["SELECT 1", "SELECT 2"]
@@ -362,7 +362,7 @@ async def test_connection_is_returned_after_a_failed_statement(
     response = await hass.services.async_call(
         DOMAIN,
         SERVICE_EXECUTE,
-        {ATTR_QUERY: "SELECT * FROM nope"},
+        {ATTR_QUERY: "DELETE FROM nope"},
         blocking=True,
         return_response=True,
     )
@@ -387,7 +387,7 @@ async def test_connection_is_returned_when_the_database_switch_fails(
     response = await hass.services.async_call(
         DOMAIN,
         SERVICE_EXECUTE,
-        {ATTR_QUERY: "SELECT 1", ATTR_DB4QUERY: "other_db"},
+        {ATTR_QUERY: "UPDATE t SET a = 1", ATTR_DB4QUERY: "other_db"},
         blocking=True,
         return_response=True,
     )
@@ -410,7 +410,7 @@ async def test_connections_are_returned_across_repeated_failures(
         await hass.services.async_call(
             DOMAIN,
             SERVICE_EXECUTE,
-            {ATTR_QUERY: "SELECT ("},
+            {ATTR_QUERY: "DELETE FROM ("},
             blocking=True,
             return_response=True,
         )

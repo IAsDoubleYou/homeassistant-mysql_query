@@ -15,6 +15,7 @@ ATTR_QUERY: Final = "query"
 ATTR_VALUES: Final = "values"
 ATTR_DB4QUERY: Final = "db4query"
 ATTR_CONFIG_ENTRY: Final = "config_entry"
+ATTR_RAISE_ON_ERROR: Final = "raise_on_error"
 
 # Configuration fields
 CONF_MYSQL_HOST: Final = "mysql_host"
@@ -28,12 +29,18 @@ CONF_MYSQL_COLLATION: Final = "mysql_collation"
 CONF_AUTOCOMMIT: Final = "mysql_autocommit"
 CONF_ROW_LIMIT: Final = "mysql_row_limit"
 CONF_USE_TLS: Final = "mysql_use_tls"
+CONF_READONLY_CONNECTION: Final = "mysql_readonly"
 
 # Defaults
 DEFAULT_MYSQL_PORT: Final = 3306
 DEFAULT_MYSQL_TIMEOUT: Final = 10
 DEFAULT_MYSQL_AUTOCOMMIT: Final = True
 DEFAULT_ROW_LIMIT: Final = 1000
+
+# Off for compatibility: an existing connection was never read-only, and
+# turning it on for everyone would refuse writes people rely on. It is a
+# choice per connection, meant for one that only feeds dashboards.
+DEFAULT_READONLY_CONNECTION: Final = False
 
 # TODO: flip this to True in a future release.
 #

@@ -15,10 +15,12 @@
                     "mysql_collation": "Collation",
                     "mysql_autocommit": "Autocommit",
                     "mysql_row_limit": "Row Limit (Safety Cap)",
-                    "mysql_use_tls": "Encrypt the connection (TLS)"
+                    "mysql_use_tls": "Encrypt the connection (TLS)",
+                    "mysql_readonly": "Read-only connection"
                 },
                 "data_description": {
-                    "mysql_use_tls": "Encrypts the traffic to the database. The server must have TLS configured; the connection fails if it does not. The server certificate is not verified, so this protects against reading along on the network, not against a server impersonating yours. Off by default so existing setups keep working."
+                    "mysql_use_tls": "Encrypts the traffic to the database. The server must have TLS configured; the connection fails if it does not. The server certificate is not verified, so this protects against reading along on the network, not against a server impersonating yours. Off by default so existing setups keep working.",
+                    "mysql_readonly": "Refuses the Execute action on this connection, whatever the statement says. Use it for a connection that only feeds dashboards or reports, so a write aimed at the wrong connection cannot land here. Off by default."
                 }
             }
         },
@@ -49,10 +51,12 @@
                     "mysql_collation": "Collation",
                     "mysql_autocommit": "Autocommit",
                     "mysql_row_limit": "Row Limit (Safety Cap)",
-                    "mysql_use_tls": "Encrypt the connection (TLS)"
+                    "mysql_use_tls": "Encrypt the connection (TLS)",
+                    "mysql_readonly": "Read-only connection"
                 },
                 "data_description": {
-                    "mysql_use_tls": "Encrypts the traffic to the database. The server must have TLS configured; the connection fails if it does not. The server certificate is not verified, so this protects against reading along on the network, not against a server impersonating yours. Off by default so existing setups keep working."
+                    "mysql_use_tls": "Encrypts the traffic to the database. The server must have TLS configured; the connection fails if it does not. The server certificate is not verified, so this protects against reading along on the network, not against a server impersonating yours. Off by default so existing setups keep working.",
+                    "mysql_readonly": "Refuses the Execute action on this connection, whatever the statement says. Use it for a connection that only feeds dashboards or reports, so a write aimed at the wrong connection cannot land here. Off by default."
                 }
             }
         },
@@ -67,7 +71,7 @@
     "services": {
         "execute": {
             "name": "Execute",
-            "description": "Executes a SQL query and returns the results with full metadata.",
+            "description": "Runs a statement that changes data (INSERT, UPDATE, DELETE, DDL) and returns what it affected. Refuses a SELECT or WITH statement; use Query for that.",
             "fields": {
                 "query": {
                     "name": "Query",
@@ -84,12 +88,16 @@
                 "config_entry": {
                     "name": "Connection",
                     "description": "The database connection to run this query on. If left empty, the default instance will be used."
+                },
+                "raise_on_error": {
+                    "name": "Raise on error",
+                    "description": "Stop the caller with an error when the statement fails, instead of reporting it in the response as succeeded false. Off by default for this action; switch it on to get the behaviour Query has."
                 }
             }
         },
         "query": {
-            "name": "Query (Legacy)",
-            "description": "Executes a SQL query and returns the results (minimal format).",
+            "name": "Query",
+            "description": "Runs a SELECT or WITH statement and returns the rows together with the metadata about the result. Refuses anything that changes data; use Execute for that.",
             "fields": {
                 "query": {
                     "name": "Query",
@@ -106,6 +114,10 @@
                 "config_entry": {
                     "name": "Connection",
                     "description": "The database connection to run this query on."
+                },
+                "raise_on_error": {
+                    "name": "Raise on error",
+                    "description": "Stop the caller with an error when the statement fails, instead of reporting it in the response as succeeded false. On by default for this action; switch it off to get the behaviour Execute has."
                 }
             }
         }

@@ -1,6 +1,9 @@
 query:
-  name: Query (Legacy)
-  description: Executes a SQL query and returns the results in a simple list.
+  name: Query
+  description: >
+    Runs a SELECT or WITH statement and returns the rows, together with the
+    metadata about the result. Refuses anything that changes data; use the
+    Execute action for that.
   fields:
     query:
       name: Query
@@ -33,12 +36,24 @@ query:
       selector:
         config_entry:
           integration: mysql_query
+    raise_on_error:
+      name: Raise on error
+      description: >
+        Stop the caller with an error when the statement fails, instead of
+        reporting it in the response as succeeded false. On by default for
+        this action; switch it off to get the behaviour the Execute action
+        has.
+      required: false
+      default: true
+      selector:
+        boolean:
 
 execute:
-  name: Execute (Modern)
+  name: Execute
   description: >
-    Executes a SQL query and returns results with full metadata, including
-    rows_found, rows_returned, and rows_affected.
+    Runs a statement that changes data (INSERT, UPDATE, DELETE, DDL) and
+    returns what it affected. Refuses a SELECT or WITH statement; use the
+    Query action for that.
   fields:
     query:
       name: Query
@@ -71,3 +86,13 @@ execute:
       selector:
         config_entry:
           integration: mysql_query
+    raise_on_error:
+      name: Raise on error
+      description: >
+        Stop the caller with an error when the statement fails, instead of
+        reporting it in the response as succeeded false. Off by default for
+        this action; switch it on to get the behaviour the Query action has.
+      required: false
+      default: false
+      selector:
+        boolean:

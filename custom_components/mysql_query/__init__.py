@@ -32,12 +32,15 @@ from .const import (
     ATTR_CONFIG_ENTRY,
     ATTR_DB4QUERY,
     ATTR_QUERY,
+    ATTR_RAISE_ON_ERROR,
     ATTR_VALUES,
     CONF_MYSQL_DB,
     CONF_MYSQL_TIMEOUT,
     CONF_MYSQL_USERNAME,
+    CONF_READONLY_CONNECTION,
     CONF_ROW_LIMIT,
     DEFAULT_MYSQL_TIMEOUT,
+    DEFAULT_READONLY_CONNECTION,
     DEFAULT_ROW_LIMIT,
     DOMAIN,
     SERVICE_EXECUTE,
@@ -50,12 +53,13 @@ from .db import (
     error_details,
     tls_requested,
 )
+from .sql import is_read_only, split_statements
 
 _LOGGER = logging.getLogger(__name__)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-SERVICE_SCHEMA: Final = vol.Schema(
+QUERY_SCHEMA: Final = vol.Schema(
     {
         vol.Required(ATTR_QUERY): cv.string,
         # Values bound to the %s placeholders of a parameterized query. Only
@@ -67,7 +71,14 @@ SERVICE_SCHEMA: Final = vol.Schema(
         ),
         vol.Optional(ATTR_DB4QUERY): cv.string,
         vol.Optional(ATTR_CONFIG_ENTRY): cv.string,
+        # Both services take this switch; only the default differs, so each
+        # keeps the behaviour it always had unless the call says otherwise.
+        vol.Optional(ATTR_RAISE_ON_ERROR, default=True): cv.boolean,
     }
+)
+
+EXECUTE_SCHEMA: Final = QUERY_SCHEMA.extend(
+    {vol.Optional(ATTR_RAISE_ON_ERROR, default=False): cv.boolean}
 )
 
 
@@ -90,6 +101,9 @@ class MySQLInstance:
     pool: aiomysql.Pool
     config: Mapping[str, Any]
     title: str
+    # Set by the user on the connection itself. A hard boundary: it refuses
+    # execute without looking at the statement at all.
+    read_only: bool = False
     # One lock per config entry. Home Assistant can fire several service calls
     # at the same time, and MySQL only handles one statement per connection at
     # a time, so the lock keeps the calls from interleaving.
@@ -97,6 +111,87 @@ class MySQLInstance:
 
 
 type MySQLQueryConfigEntry = ConfigEntry[MySQLInstance]
+
+
+def _query_response(response: dict[str, Any]) -> dict[str, Any]:
+    """Return the part of the response that query reports.
+
+    The metadata a SELECT through execute used to carry, so moving such a
+    call over to query loses nothing. error travels along on every call, not
+    only on a failed one, so the shape a template sees never changes.
+    """
+    return {
+        "result": response["result"],
+        "succeeded": response["succeeded"],
+        "execution_time_ms": response["execution_time_ms"],
+        "rows_found": response["rows_found"],
+        "column_names": response["column_names"],
+        "error": response["error"],
+    }
+
+
+def _service_response(call: ServiceCall, response: dict[str, Any]) -> dict[str, Any]:
+    """Return the response in the shape the called service reports."""
+    if call.service == SERVICE_QUERY:
+        return _query_response(response)
+    return response
+
+
+@callback
+def _raises_on_error(call: ServiceCall) -> bool:
+    """Return whether a failed statement should stop the caller.
+
+    The default differs per service, so each keeps what it always did: query
+    raises, execute reports the failure in its response. Either can be told
+    to do the other, which is what a call moving between the two needs.
+    """
+    default = call.service == SERVICE_QUERY
+    return bool(call.data.get(ATTR_RAISE_ON_ERROR, default))
+
+
+@callback
+def _async_check_call(instance: MySQLInstance, service: str, query: str) -> None:
+    """Refuse a call that does not belong on this service or this connection.
+
+    Raises rather than reporting through the response: this is a refusal to
+    run anything, not the outcome of a statement, and a caller that does not
+    read `succeeded` would otherwise take it for a success.
+    """
+    if service == SERVICE_EXECUTE and instance.read_only:
+        raise HomeAssistantError(
+            f"The connection '{instance.title}' is marked read-only, so "
+            f"{DOMAIN}.{SERVICE_EXECUTE} is refused on it whatever the "
+            "statement says. Use another connection, or turn the read-only "
+            "option off under Configure."
+        )
+
+    statements = split_statements(query)
+
+    if not statements:
+        raise HomeAssistantError("No SQL statement was given.")
+
+    if len(statements) > 1:
+        raise HomeAssistantError(
+            f"This call carries {len(statements)} statements separated by a "
+            "semicolon. The driver would run every one of them while only the "
+            "first reports a result, so a call carries exactly one statement."
+        )
+
+    read_only = is_read_only(statements[0])
+
+    if service == SERVICE_QUERY and not read_only:
+        raise HomeAssistantError(
+            f"{DOMAIN}.{SERVICE_QUERY} only runs SELECT and WITH statements. "
+            f"Call {DOMAIN}.{SERVICE_EXECUTE} for a statement that changes "
+            "data; the parameters are the same."
+        )
+
+    if service == SERVICE_EXECUTE and read_only:
+        raise HomeAssistantError(
+            f"{DOMAIN}.{SERVICE_EXECUTE} only runs statements that change "
+            f"data. Call {DOMAIN}.{SERVICE_QUERY} for a SELECT or WITH "
+            "statement; it reports the same metadata."
+        )
 
 
 @callback
@@ -374,7 +469,14 @@ async def async_setup_entry(  # noqa: PLR0915
             await pool.wait_closed()
             return False
 
-    entry.runtime_data = MySQLInstance(pool=pool, config=config, title=entry.title)
+    entry.runtime_data = MySQLInstance(
+        pool=pool,
+        config=config,
+        title=entry.title,
+        read_only=bool(
+            config.get(CONF_READONLY_CONNECTION, DEFAULT_READONLY_CONNECTION)
+        ),
+    )
 
     # Changed settings must rebuild the pool, so reload the entry on update.
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
@@ -389,6 +491,10 @@ async def async_setup_entry(  # noqa: PLR0915
         instance = _async_instance(hass, target_entry_id)
         if instance is None:
             raise HomeAssistantError("No database instance available.")
+
+        # Before anything is borrowed from the pool: a refused call must not
+        # cost a connection.
+        _async_check_call(instance, call.service, _query)
 
         inst_config = instance.config
         mysql_db = inst_config.get(CONF_MYSQL_DB)
@@ -446,29 +552,29 @@ async def async_setup_entry(  # noqa: PLR0915
             # Kept inside the try, next to the response they read, rather than
             # moved into an else block that would sit below the handlers.
             if call.service == SERVICE_QUERY:
-                return {"result": response["result"]}
+                return _query_response(response)
             return response  # noqa: TRY300
 
         except aiomysql.Error as e:
             errno, message = error_details(e)
             _LOGGER.error("MySQL Error [%s]: %s", errno, message)
-            if call.service == SERVICE_QUERY:
+            if _raises_on_error(call):
                 raise HomeAssistantError(f"MySQL Error: {message}") from e
             response["error"] = {"message": message, "errno": errno, "sqlstate": None}
-            return response
+            return _service_response(call, response)
         except TimeoutError as e:
             message = "Timed out waiting for a free connection from the pool"
             _LOGGER.error("%s (%s)", message, instance.title)
-            if call.service == SERVICE_QUERY:
+            if _raises_on_error(call):
                 raise HomeAssistantError(message) from e
             response["error"]["message"] = message
-            return response
+            return _service_response(call, response)
         except Exception as e:
             _LOGGER.error("General Error: %s", str(e))
-            if call.service == SERVICE_QUERY:
+            if _raises_on_error(call):
                 raise HomeAssistantError(f"Error: {e!s}") from e
             response["error"]["message"] = str(e)
-            return response
+            return _service_response(call, response)
 
     # The services are global, not per entry: registering them once keeps a
     # second config entry from replacing the handler of the first.
@@ -477,7 +583,7 @@ async def async_setup_entry(  # noqa: PLR0915
             DOMAIN,
             SERVICE_QUERY,
             async_handle_service,
-            schema=SERVICE_SCHEMA,
+            schema=QUERY_SCHEMA,
             supports_response=SupportsResponse.ONLY,
         )
     if not hass.services.has_service(DOMAIN, SERVICE_EXECUTE):
@@ -485,7 +591,7 @@ async def async_setup_entry(  # noqa: PLR0915
             DOMAIN,
             SERVICE_EXECUTE,
             async_handle_service,
-            schema=SERVICE_SCHEMA,
+            schema=EXECUTE_SCHEMA,
             supports_response=SupportsResponse.ONLY,
         )
 
