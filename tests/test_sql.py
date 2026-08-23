@@ -9,6 +9,7 @@ from custom_components.mysql_query.sql import (
     is_read_only,
     split_statements,
     strip_comments,
+    unwrap_prefixes,
 )
 
 
@@ -21,8 +22,6 @@ from custom_components.mysql_query.sql import (
         ("DESCRIBE t", True),
         ("DESC t", True),
         ("EXPLAIN SELECT * FROM t", True),
-        # EXPLAIN only plans; it does not run the statement it describes.
-        ("EXPLAIN DELETE FROM t", True),
         ("CHECKSUM TABLE t", True),
         ("HELP 'contents'", True),
         ("TABLE t", True),
@@ -38,11 +37,8 @@ from custom_components.mysql_query.sql import (
         ("TRUNCATE TABLE t", False),
         ("CREATE TABLE t (id INT)", False),
         ("REPLACE INTO t VALUES (1)", False),
-        # Runs the statement it is put in front of instead of planning it,
-        # measured against MariaDB 10.11: ANALYZE DELETE emptied the table.
-        ("ANALYZE DELETE FROM t", False),
-        ("ANALYZE SELECT * FROM t", False),
-        # Rewrites index statistics.
+        # Rewrites index statistics, so not a wrapped statement but the
+        # maintenance command.
         ("ANALYZE TABLE t", False),
         # Can rewrite a table depending on the engine.
         ("CHECK TABLE t", False),
@@ -123,24 +119,56 @@ def test_split_keeps_the_statement_text() -> None:
 
 
 @pytest.mark.parametrize(
-    "statement",
+    ("statement", "expected"),
     [
-        "EXPLAIN ANALYZE SELECT * FROM t",
-        "EXPLAIN ANALYZE DELETE FROM t",
-        "explain   analyze   update t SET a = 1",
-        "/* note */ EXPLAIN ANALYZE DELETE FROM t",
+        # ANALYZE runs what it wraps, so the wrapped statement decides.
+        # Measured against MariaDB 10.11 on a three-row table.
+        ("ANALYZE SELECT * FROM t", True),
+        ("ANALYZE FORMAT=JSON SELECT * FROM t", True),
+        ("ANALYZE DELETE FROM t", False),
+        ("ANALYZE UPDATE t SET a = 1", False),
+        ("ANALYZE INSERT INTO t VALUES (1)", False),
+        ("ANALYZE FORMAT=JSON DELETE FROM t", False),
+        # EXPLAIN only produces a plan, so nothing it wraps is carried out.
+        ("EXPLAIN SELECT * FROM t", True),
+        ("EXPLAIN DELETE FROM t", True),
+        ("EXPLAIN UPDATE t SET a = 1", True),
+        ("EXPLAIN INSERT INTO t VALUES (1)", True),
+        ("EXPLAIN FORMAT=JSON DELETE FROM t", True),
+        ("EXPLAIN EXTENDED SELECT 1", True),
+        # EXPLAIN ANALYZE is the running kind again, so the wrapped
+        # statement decides once more.
+        ("EXPLAIN ANALYZE SELECT * FROM t", True),
+        ("EXPLAIN ANALYZE DELETE FROM t", False),
+        ("EXPLAIN ANALYZE FORMAT=TREE UPDATE t SET a = 1", False),
+        ("explain analyze insert into t values (1)", False),
+        ("/* note */ ANALYZE DELETE FROM t", False),
+        ("/* note */ ANALYZE SELECT 1", True),
     ],
 )
-def test_explain_analyze_is_not_read_only(statement: str) -> None:
-    """EXPLAIN ANALYZE runs the statement instead of planning it.
+def test_prefix_is_classified_by_what_it_wraps(statement: str, expected: bool) -> None:
+    """EXPLAIN and ANALYZE are not statements of their own.
 
-    Plain EXPLAIN only produces the plan, which is why EXPLAIN is allowed,
-    but MySQL 8 runs the statement when ANALYZE follows. MariaDB 10.11
-    rejects the syntax outright, so the server cannot be relied on to stop it.
+    Treating them as keywords made ANALYZE SELECT a write and ANALYZE DELETE
+    a read, both wrong. What they wrap is what decides, together with whether
+    the prefix runs it or only plans it.
     """
-    assert is_read_only(statement) is False
+    assert is_read_only(statement) is expected
 
 
-def test_explain_without_analyze_stays_read_only() -> None:
-    """The word analyze only matters directly after EXPLAIN."""
-    assert is_read_only("EXPLAIN SELECT analyze_column FROM t") is True
+@pytest.mark.parametrize(
+    ("statement", "inner", "runs"),
+    [
+        ("SELECT 1", "SELECT 1", True),
+        ("EXPLAIN SELECT 1", "SELECT 1", False),
+        ("ANALYZE SELECT 1", "SELECT 1", True),
+        ("EXPLAIN ANALYZE SELECT 1", "SELECT 1", True),
+        ("EXPLAIN FORMAT=JSON SELECT 1", "SELECT 1", False),
+        ("ANALYZE FORMAT = JSON SELECT 1", "SELECT 1", True),
+        # Not a wrapped statement: the maintenance command comes back whole.
+        ("ANALYZE TABLE t", "ANALYZE TABLE t", True),
+    ],
+)
+def test_unwrap_prefixes(statement: str, inner: str, runs: bool) -> None:
+    """The prefix and its options are peeled off, the statement stays."""
+    assert unwrap_prefixes(statement) == (inner, runs)

@@ -63,7 +63,18 @@ A Home Assistant custom component that talks to a MySQL or MariaDB database thro
 
 From 3.0.0 on, ```mysql_query.query``` runs only statements that read, and ```mysql_query.execute``` runs only statements that change something. Reach for the wrong one and the error tells you which one to use.
 
-The dividing line is read-only versus read/write, not the word ```SELECT```. ```query``` accepts ```SELECT```, ```WITH```, ```SHOW```, ```DESCRIBE```/```DESC```, ```EXPLAIN```, ```CHECKSUM TABLE```, ```HELP```, and the MySQL 8 ```TABLE``` and ```VALUES``` shorthands. Everything else belongs to ```execute```, including maintenance statements that look informational but are not: ```ANALYZE```, ```CHECK```, ```OPTIMIZE``` and ```REPAIR``` all rewrite something, and MariaDB's ```ANALYZE <statement>``` form actually runs the statement it is put in front of. ```EXPLAIN``` is accepted because it only produces a plan, but ```EXPLAIN ANALYZE``` is not, because MySQL 8 runs the statement instead of planning it.
+The dividing line is read-only versus read/write, not the word ```SELECT```. ```query``` accepts ```SELECT```, ```WITH```, ```SHOW```, ```DESCRIBE```/```DESC```, ```CHECKSUM TABLE```, ```HELP```, and the MySQL 8 ```TABLE``` and ```VALUES``` shorthands. Everything else belongs to ```execute```, including maintenance statements that look informational but rewrite something: ```ANALYZE TABLE```, ```CHECK```, ```OPTIMIZE``` and ```REPAIR```.
+
+```EXPLAIN``` and ```ANALYZE``` are handled as what they are: prefixes in front of another statement, not statements of their own. The statement they wrap is what gets classified, after any options such as ```FORMAT=JSON``` are skipped. Which prefix it is decides whether that statement is actually carried out:
+
+| Statement | Goes to | Why |
+| :--- | :--- | :--- |
+| ```EXPLAIN SELECT ...``` | ```query``` | Produces a plan; the wrapped statement is not run. |
+| ```EXPLAIN DELETE ...``` | ```query``` | Same: ```EXPLAIN``` never carries out what it describes. |
+| ```ANALYZE SELECT ...``` | ```query``` | Runs the wrapped statement, and that statement only reads. |
+| ```ANALYZE DELETE ...``` | ```execute``` | Runs the wrapped statement, and that one deletes. |
+| ```EXPLAIN ANALYZE DELETE ...``` | ```execute``` | ```EXPLAIN ANALYZE``` runs the statement rather than planning it. |
+| ```ANALYZE TABLE t``` | ```execute``` | Not a wrapped statement but the maintenance command; it rewrites index statistics. |
 
 **If you use ```query``` for writes**, change the service name to ```mysql_query.execute```. Nothing else changes: the fields ```query```, ```values```, ```db4query``` and ```config_entry``` are identical, and the rows are still under ```result```. One thing to know: ```query``` stops your automation when a statement fails, while ```execute``` reports the failure in its response as ```succeeded: false```. If you were relying on the automation stopping, add ```raise_on_error: true``` to the call.
 

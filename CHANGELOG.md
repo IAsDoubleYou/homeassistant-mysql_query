@@ -30,9 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### What counts as read-only
 
-`query` accepts `SELECT`, `WITH`, `SHOW`, `DESCRIBE`/`DESC`, `EXPLAIN`, `CHECKSUM TABLE`, `HELP`, and the MySQL 8 `TABLE` and `VALUES` shorthands. Everything else goes to `execute`.
+`query` accepts `SELECT`, `WITH`, `SHOW`, `DESCRIBE`/`DESC`, `CHECKSUM TABLE`, `HELP`, and the MySQL 8 `TABLE` and `VALUES` shorthands. Everything else goes to `execute`.
 
-Statements that look informational but change something are deliberately not on that list: `ANALYZE` (MariaDB's `ANALYZE <statement>` runs the statement it precedes, which was measured emptying a table, and `ANALYZE TABLE` rewrites index statistics), `CHECK`, `OPTIMIZE` and `REPAIR` (they can rewrite a table), `FLUSH`, `SET` and `USE` (server or session state, and `USE` would leave a pooled connection pointing at another database), `DO` and `CALL` (they evaluate code that can write), and `PREPARE`/`EXECUTE`/`DEALLOCATE`, which can carry any statement at all. `EXPLAIN` is accepted because it only plans, but `EXPLAIN ANALYZE` is refused because MySQL 8 runs the statement instead.
+Statements that look informational but change something are deliberately not on that list: `ANALYZE TABLE` (it rewrites index statistics), `CHECK`, `OPTIMIZE` and `REPAIR` (they can rewrite a table), `FLUSH`, `SET` and `USE` (server or session state, and `USE` would leave a pooled connection pointing at another database), `DO` and `CALL` (they evaluate code that can write), and `PREPARE`/`EXECUTE`/`DEALLOCATE`, which can carry any statement at all.
+
+`EXPLAIN` and `ANALYZE` are treated as prefixes rather than statements of their own: the statement they wrap is classified instead, after options such as `FORMAT=JSON` are skipped. `EXPLAIN` only produces a plan, so `EXPLAIN DELETE` is read-only and belongs to `query`. `ANALYZE` runs what it wraps, so `ANALYZE SELECT` belongs to `query` and `ANALYZE DELETE` to `execute`, exactly like the bare statements. `EXPLAIN ANALYZE` is the running kind. All of this was measured against MariaDB 10.11: on a three-row table, `EXPLAIN DELETE` left three rows and `ANALYZE DELETE` left none.
 
 ### Note on what the guard is not
 

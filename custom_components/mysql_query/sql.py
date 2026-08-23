@@ -29,7 +29,6 @@ READ_ONLY_KEYWORDS: Final = frozenset(
         "show",
         "describe",
         "desc",
-        "explain",
         "checksum",  # CHECKSUM TABLE only reads to compute the checksum.
         "help",
         # MySQL 8 shorthands: TABLE t is SELECT * FROM t, and VALUES builds a
@@ -39,13 +38,24 @@ READ_ONLY_KEYWORDS: Final = frozenset(
     }
 )
 
-# "EXPLAIN ANALYZE <statement>" does not plan the statement, it runs it. The
-# bare EXPLAIN form only plans, which is why EXPLAIN itself is allowed above.
-_EXECUTING_EXPLAIN: Final = ("explain", "analyze")
+# EXPLAIN and ANALYZE are not statements of their own, they wrap one. Which of
+# the two it is decides whether the wrapped statement is only planned or
+# actually run, so they are peeled off and what is left is classified instead.
+#
+# Measured against MariaDB 10.11 on a three-row table: "EXPLAIN DELETE FROM t"
+# left all three rows, "ANALYZE DELETE FROM t" left none.
+_PLANNING_PREFIX: Final = "explain"
+_EXECUTING_PREFIX: Final = "analyze"
+
+# Options that may sit between the prefix and the statement it wraps, such as
+# EXPLAIN FORMAT=JSON SELECT ... or EXPLAIN EXTENDED SELECT ...
+_PREFIX_OPTION_RE: Final = re.compile(
+    r"\s*(?:extended|partitions|format\s*=\s*[A-Za-z_]+)\b", re.IGNORECASE
+)
 
 # The keyword may be preceded by brackets, as in (SELECT ...).
 _FIRST_WORD_RE: Final = re.compile(r"[(\s]*([A-Za-z_]+)")
-_LEADING_WORDS_RE: Final = re.compile(r"[(\s]*([A-Za-z_]+)(?:\s+([A-Za-z_]+))?")
+_WORD_RE: Final = re.compile(r"[(\s]*([A-Za-z_]+)")
 
 _QUOTES: Final = ("'", '"', "`")
 
@@ -155,6 +165,43 @@ def first_keyword(statement: str) -> str:
     return match.group(1).lower() if match else ""
 
 
+def unwrap_prefixes(statement: str) -> tuple[str, bool]:
+    """Peel EXPLAIN and ANALYZE off a statement.
+
+    Returns what they wrap, and whether that wrapped statement is actually
+    run. EXPLAIN only produces a plan, so what it wraps never happens;
+    ANALYZE runs the statement and reports what it did, so what it wraps
+    happens for real. "EXPLAIN ANALYZE" is the second kind.
+
+    ANALYZE TABLE is not a wrapped statement but the maintenance command,
+    which rewrites index statistics, so it is left alone to be classified as
+    a write on its own.
+    """
+    text = strip_comments(statement).strip()
+    runs = True
+
+    while (match := _WORD_RE.match(text)) is not None:
+        word = match.group(1).lower()
+
+        if word == _PLANNING_PREFIX:
+            runs = False
+        elif word == _EXECUTING_PREFIX:
+            rest = text[match.end() :]
+            if (following := _WORD_RE.match(rest)) is not None and following.group(
+                1
+            ).lower() == "table":
+                # ANALYZE TABLE, the maintenance command.
+                return text, True
+            runs = True
+        else:
+            break
+
+        text = text[match.end() :]
+        text = _PREFIX_OPTION_RE.sub("", text, count=0).lstrip()
+
+    return text, runs
+
+
 def is_read_only(statement: str) -> bool:
     """Return whether a single statement only reads.
 
@@ -164,13 +211,10 @@ def is_read_only(statement: str) -> bool:
     UPDATE or a DELETE. Read-only rights on the database user are what
     actually stops a write.
     """
-    match = _LEADING_WORDS_RE.match(strip_comments(statement))
-    if match is None:
-        return False
+    inner, runs = unwrap_prefixes(statement)
 
-    first = match.group(1).lower()
-    if first not in READ_ONLY_KEYWORDS:
-        return False
+    # Planned but never carried out, so whatever it wraps cannot write.
+    if not runs:
+        return True
 
-    second = (match.group(2) or "").lower()
-    return (first, second) != _EXECUTING_EXPLAIN
+    return first_keyword(inner) in READ_ONLY_KEYWORDS
