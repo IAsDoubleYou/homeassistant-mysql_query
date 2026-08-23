@@ -10,7 +10,7 @@ A Home Assistant custom component that talks to a MySQL or MariaDB database thro
 ## Key Features
 
 - **UI Configuration**: Modern setup and management through the Home Assistant Integrations page (Config Flow).
-- **Reading and writing are separate**: ```query``` runs only SELECT and WITH statements, ```execute``` runs only statements that change data. Reach for the wrong one and you get an error naming the right one, instead of a surprise.
+- **Reading and writing are separate**: ```query``` runs only statements that read, ```execute``` only statements that change something. Reach for the wrong one and you get an error naming the right one, instead of a surprise.
 - **Parameterized queries**: pass values separately with ```values``` and ```%s``` placeholders, so the database escapes them for you and templates keep their data type.
 - **Stability Protection**: Built-in row limiting to prevent Home Assistant from hanging on large result sets.
 - Support for all SQL statement types (SELECT, INSERT, UPDATE, DELETE, DDL), split across the two services.
@@ -61,7 +61,9 @@ A Home Assistant custom component that talks to a MySQL or MariaDB database thro
 
 **This release splits reading and writing across the two services.** Before 3.0.0 both services ran anything, and they differed only in what they returned. That meant a service called ```query``` would happily run a ```DELETE```, which is exactly the sort of accident a name should prevent.
 
-From 3.0.0 on, ```mysql_query.query``` runs only ```SELECT``` and ```WITH``` statements, and ```mysql_query.execute``` runs only statements that change data. Reach for the wrong one and the error tells you which one to use.
+From 3.0.0 on, ```mysql_query.query``` runs only statements that read, and ```mysql_query.execute``` runs only statements that change something. Reach for the wrong one and the error tells you which one to use.
+
+The dividing line is read-only versus read/write, not the word ```SELECT```. ```query``` accepts ```SELECT```, ```WITH```, ```SHOW```, ```DESCRIBE```/```DESC```, ```EXPLAIN```, ```CHECKSUM TABLE```, ```HELP```, and the MySQL 8 ```TABLE``` and ```VALUES``` shorthands. Everything else belongs to ```execute```, including maintenance statements that look informational but are not: ```ANALYZE```, ```CHECK```, ```OPTIMIZE``` and ```REPAIR``` all rewrite something, and MariaDB's ```ANALYZE <statement>``` form actually runs the statement it is put in front of. ```EXPLAIN``` is accepted because it only produces a plan, but ```EXPLAIN ANALYZE``` is not, because MySQL 8 runs the statement instead of planning it.
 
 **If you use ```query``` for writes**, change the service name to ```mysql_query.execute```. Nothing else changes: the fields ```query```, ```values```, ```db4query``` and ```config_entry``` are identical, and the rows are still under ```result```. One thing to know: ```query``` stops your automation when a statement fails, while ```execute``` reports the failure in its response as ```succeeded: false```. If you were relying on the automation stopping, add ```raise_on_error: true``` to the call.
 
@@ -88,7 +90,7 @@ data:
 
 **One more thing that changes for both services.** A call carrying several statements separated by a semicolon is now refused. The driver has multi-statement support switched on and cannot be told otherwise, so ```SELECT 1; DELETE FROM states``` used to run *both* while reporting only the result of the first. A trailing semicolon is still fine, and so is a semicolon inside a quoted value.
 
-**What this protection is not.** The check reads the first keyword of the statement; it is a guard against reaching for the wrong service, not a security boundary. A ```SELECT``` can still write through ```INTO OUTFILE``` or a stored function with side effects, and MySQL 8 accepts a CTE in front of an ```UPDATE```. If a connection must never write, give its database user ```SELECT``` rights only, and consider marking the connection [read-only](#read-only-connections).
+**What this protection is not.** The check reads the leading keywords of the statement; it is a guard against reaching for the wrong service, not a security boundary. A ```SELECT``` can still write through ```INTO OUTFILE``` or a stored function with side effects, and MySQL 8 accepts a CTE in front of an ```UPDATE```. If a connection must never write, give its database user ```SELECT``` rights only, and consider marking the connection [read-only](#read-only-connections).
 
 ---
 
@@ -223,8 +225,8 @@ The integration registers two services. Both are **responding services**: they r
 
 | Service | Use it for | Returns |
 | :--- | :--- | :--- |
-| ```mysql_query.query``` | Reading: ```SELECT``` and ```WITH```. Refuses anything that changes data. | The rows under ```result```, plus ```succeeded```, ```rows_found```, ```column_names```, ```execution_time_ms``` and ```error```. Raises on a database error unless ```raise_on_error: false```. |
-| ```mysql_query.execute``` | Writing: ```INSERT```, ```UPDATE```, ```DELETE```, ```CREATE```, ```DROP```. Refuses ```SELECT``` and ```WITH```. | Full metadata: row counts, generated id, timing and errors. Reports a database error in the response instead of raising, unless ```raise_on_error: true```. |
+| ```mysql_query.query``` | Reading only: ```SELECT```, ```WITH```, ```SHOW```, ```DESCRIBE```, ```EXPLAIN```, ```CHECKSUM TABLE```, ```HELP```, and the MySQL 8 ```TABLE```/```VALUES``` shorthands. Refuses anything that changes data or schema. | The rows under ```result```, plus ```succeeded```, ```rows_found```, ```column_names```, ```execution_time_ms``` and ```error```. Raises on a database error unless ```raise_on_error: false```. |
+| ```mysql_query.execute``` | Everything that changes something: ```INSERT```, ```UPDATE```, ```DELETE```, DDL, and maintenance statements such as ```ANALYZE``` or ```OPTIMIZE```. Refuses a read-only statement. | Full metadata: row counts, generated id, timing and errors. Reports a database error in the response instead of raising, unless ```raise_on_error: true```. |
 
 Both services accept exactly the same four fields:
 

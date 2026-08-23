@@ -71,7 +71,7 @@
     "services": {
         "execute": {
             "name": "Uitvoeren",
-            "description": "Voert een statement uit dat gegevens wijzigt (INSERT, UPDATE, DELETE, DDL) en geeft terug wat het geraakt heeft. Weigert een SELECT- of WITH-statement; gebruik daarvoor Query.",
+            "description": "Voert een statement uit dat iets wijzigt (INSERT, UPDATE, DELETE, DDL, en onderhoudsstatements zoals ANALYZE of OPTIMIZE) en geeft terug wat het geraakt heeft. Weigert een statement dat alleen leest; gebruik daarvoor Query.",
             "fields": {
                 "query": {
                     "name": "Query",
@@ -97,7 +97,7 @@
         },
         "query": {
             "name": "Query",
-            "description": "Voert een SELECT- of WITH-statement uit en geeft de rijen terug, samen met de metadata over het resultaat. Weigert alles wat gegevens wijzigt; gebruik daarvoor Uitvoeren.",
+            "description": "Voert een statement uit dat alleen leest - SELECT, WITH, SHOW, DESCRIBE, EXPLAIN en dergelijke - en geeft de rijen terug samen met de metadata over het resultaat. Weigert alles wat gegevens of schema wijzigt; gebruik daarvoor Uitvoeren.",
             "fields": {
                 "query": {
                     "name": "Query",

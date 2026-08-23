@@ -516,7 +516,7 @@ async def test_query_refuses_a_write_statement(hass: HomeAssistant) -> None:
             return_response=True,
         )
 
-    assert "SELECT and WITH" in str(err.value)
+    assert "statements that read" in str(err.value)
     # Refused before anything was borrowed from the pool.
     assert pool.acquired == 0
 

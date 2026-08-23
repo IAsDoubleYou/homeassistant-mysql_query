@@ -71,7 +71,7 @@
     "services": {
         "execute": {
             "name": "Execute",
-            "description": "Runs a statement that changes data (INSERT, UPDATE, DELETE, DDL) and returns what it affected. Refuses a SELECT or WITH statement; use Query for that.",
+            "description": "Runs a statement that changes something (INSERT, UPDATE, DELETE, DDL, and maintenance statements such as ANALYZE or OPTIMIZE) and returns what it affected. Refuses a statement that only reads; use Query for that.",
             "fields": {
                 "query": {
                     "name": "Query",
@@ -97,7 +97,7 @@
         },
         "query": {
             "name": "Query",
-            "description": "Runs a SELECT or WITH statement and returns the rows together with the metadata about the result. Refuses anything that changes data; use Execute for that.",
+            "description": "Runs a statement that only reads - SELECT, WITH, SHOW, DESCRIBE, EXPLAIN and the like - and returns the rows together with the metadata about the result. Refuses anything that changes data or schema; use Execute for that.",
             "fields": {
                 "query": {
                     "name": "Query",

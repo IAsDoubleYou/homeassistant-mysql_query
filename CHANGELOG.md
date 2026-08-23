@@ -11,8 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`mysql_query.query` refuses anything that is not a SELECT or a WITH statement**, and the error names `mysql_query.execute` as where the call belongs. Until now both services ran anything and differed only in what they returned, so a service called `query` would happily run a DELETE. That is the accident this release is about. This is breaking for calls that have used `query` for writes since 2.1.0 (commit `eb11f99`, "Support for all SQL query types"), where the original SELECT-only guard was removed.
-- **`mysql_query.execute` refuses a SELECT or WITH statement**, and the error names `mysql_query.query`. The split is symmetrical on purpose: each service does one thing, and reaching for the wrong one always tells you which one you wanted.
+- **`mysql_query.query` refuses any statement that is not read-only**, and the error names `mysql_query.execute` as where the call belongs. Until now both services ran anything and differed only in what they returned, so a service called `query` would happily run a DELETE. That is the accident this release is about. This is breaking for calls that have used `query` for writes since 2.1.0 (commit `eb11f99`, "Support for all SQL query types"), where the original SELECT-only guard was removed.
+- **`mysql_query.execute` refuses a read-only statement**, and the error names `mysql_query.query`. The split is symmetrical on purpose: each service does one thing, and reaching for the wrong one always tells you which one you wanted.
 - **A call carrying more than one statement is refused, on both services.** aiomysql switches on `CLIENT.MULTI_STATEMENTS` unconditionally and offers no way to turn it off through its public API, so `SELECT 1; DELETE FROM states` used to run both statements while only the first reported a result, and the integration reported it as a successful SELECT. A trailing semicolon is still accepted, and so is a semicolon inside a quoted value.
 - **`query` now returns the metadata `execute` returned for a SELECT**: `succeeded`, `rows_found`, `column_names`, `execution_time_ms` and `error` travel alongside `result`. Nothing is lost by moving a read from `execute` to `query`, and the shape does not change between a successful and a failed call.
 
@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Using `execute` for reads: change the service name to `mysql_query.query`. The metadata you used `execute` for comes with it.
 - Reading through `query` and writing through `execute` already: nothing to do.
 - Sending several statements in one call: split them into separate calls.
+
+### What counts as read-only
+
+`query` accepts `SELECT`, `WITH`, `SHOW`, `DESCRIBE`/`DESC`, `EXPLAIN`, `CHECKSUM TABLE`, `HELP`, and the MySQL 8 `TABLE` and `VALUES` shorthands. Everything else goes to `execute`.
+
+Statements that look informational but change something are deliberately not on that list: `ANALYZE` (MariaDB's `ANALYZE <statement>` runs the statement it precedes, which was measured emptying a table, and `ANALYZE TABLE` rewrites index statistics), `CHECK`, `OPTIMIZE` and `REPAIR` (they can rewrite a table), `FLUSH`, `SET` and `USE` (server or session state, and `USE` would leave a pooled connection pointing at another database), `DO` and `CALL` (they evaluate code that can write), and `PREPARE`/`EXECUTE`/`DEALLOCATE`, which can carry any statement at all. `EXPLAIN` is accepted because it only plans, but `EXPLAIN ANALYZE` is refused because MySQL 8 runs the statement instead.
 
 ### Note on what the guard is not
 

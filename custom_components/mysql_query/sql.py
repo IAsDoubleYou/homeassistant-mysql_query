@@ -11,12 +11,41 @@ from __future__ import annotations
 import re
 from typing import Final
 
-# Statements that only read. Anything else counts as a write, which is what
-# decides whether a call belongs to query or to execute.
-READ_ONLY_KEYWORDS: Final = frozenset({"select", "with"})
+# Statements that never change data or schema. Anything else counts as a
+# write, which is what decides whether a call belongs to query or to execute.
+#
+# Deliberately left out, because they do change something despite looking
+# informational: ANALYZE (MariaDB runs "ANALYZE <statement>" for real, and
+# ANALYZE TABLE rewrites index statistics), CHECK and REPAIR and OPTIMIZE
+# (they can rewrite a table), FLUSH, SET and USE (server or session state,
+# and USE would leave a pooled connection pointing at another database), DO
+# and CALL (they evaluate code that can write), HANDLER, LOCK and UNLOCK, the
+# transaction statements, and PREPARE/EXECUTE/DEALLOCATE, which can carry any
+# statement at all.
+READ_ONLY_KEYWORDS: Final = frozenset(
+    {
+        "select",
+        "with",
+        "show",
+        "describe",
+        "desc",
+        "explain",
+        "checksum",  # CHECKSUM TABLE only reads to compute the checksum.
+        "help",
+        # MySQL 8 shorthands: TABLE t is SELECT * FROM t, and VALUES builds a
+        # result set out of literal rows. Neither has a writing form.
+        "table",
+        "values",
+    }
+)
+
+# "EXPLAIN ANALYZE <statement>" does not plan the statement, it runs it. The
+# bare EXPLAIN form only plans, which is why EXPLAIN itself is allowed above.
+_EXECUTING_EXPLAIN: Final = ("explain", "analyze")
 
 # The keyword may be preceded by brackets, as in (SELECT ...).
 _FIRST_WORD_RE: Final = re.compile(r"[(\s]*([A-Za-z_]+)")
+_LEADING_WORDS_RE: Final = re.compile(r"[(\s]*([A-Za-z_]+)(?:\s+([A-Za-z_]+))?")
 
 _QUOTES: Final = ("'", '"', "`")
 
@@ -135,4 +164,13 @@ def is_read_only(statement: str) -> bool:
     UPDATE or a DELETE. Read-only rights on the database user are what
     actually stops a write.
     """
-    return first_keyword(statement) in READ_ONLY_KEYWORDS
+    match = _LEADING_WORDS_RE.match(strip_comments(statement))
+    if match is None:
+        return False
+
+    first = match.group(1).lower()
+    if first not in READ_ONLY_KEYWORDS:
+        return False
+
+    second = (match.group(2) or "").lower()
+    return (first, second) != _EXECUTING_EXPLAIN

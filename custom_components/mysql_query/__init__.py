@@ -181,16 +181,17 @@ def _async_check_call(instance: MySQLInstance, service: str, query: str) -> None
 
     if service == SERVICE_QUERY and not read_only:
         raise HomeAssistantError(
-            f"{DOMAIN}.{SERVICE_QUERY} only runs SELECT and WITH statements. "
-            f"Call {DOMAIN}.{SERVICE_EXECUTE} for a statement that changes "
-            "data; the parameters are the same."
+            f"{DOMAIN}.{SERVICE_QUERY} only runs statements that read, such "
+            f"as SELECT, WITH, SHOW, DESCRIBE and EXPLAIN. Call "
+            f"{DOMAIN}.{SERVICE_EXECUTE} for a statement that changes "
+            "anything; the parameters are the same."
         )
 
     if service == SERVICE_EXECUTE and read_only:
         raise HomeAssistantError(
             f"{DOMAIN}.{SERVICE_EXECUTE} only runs statements that change "
-            f"data. Call {DOMAIN}.{SERVICE_QUERY} for a SELECT or WITH "
-            "statement; it reports the same metadata."
+            f"something. Call {DOMAIN}.{SERVICE_QUERY} for a statement that "
+            "only reads; it reports the same metadata."
         )
 
 
