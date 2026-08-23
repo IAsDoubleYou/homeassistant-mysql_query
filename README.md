@@ -7,6 +7,8 @@
 
 A Home Assistant custom component that talks to a MySQL or MariaDB database through two ```Responding services```: ```mysql_query.query``` reads with a SELECT and hands you the rows, and ```mysql_query.execute``` writes with an INSERT, UPDATE, DELETE or DDL statement and hands you what it changed. Both return an iterable data structure you can use straight from a template.
 
+> ⚠️ **Upgrading from an earlier version?** v3.0.0 changes what ```query``` and ```execute``` each accept — see [Upgrading to 3.0.0](#upgrading-to-300) before you update.
+
 ## Key Features
 
 - **UI Configuration**: Modern setup and management through the Home Assistant Integrations page (Config Flow).
@@ -57,74 +59,6 @@ A Home Assistant custom component that talks to a MySQL or MariaDB database thro
 
 ---
 
-## Upgrading to 3.0.0
-
-**This release splits reading and writing across the two services.** Before 3.0.0 both services ran anything, and they differed only in what they returned. That meant a service called ```query``` would happily run a ```DELETE```, which is exactly the sort of accident a name should prevent.
-
-From 3.0.0 on, ```mysql_query.query``` runs only statements that read, and ```mysql_query.execute``` runs only statements that change something. Reach for the wrong one and the error tells you which one to use.
-
-The dividing line is read-only versus read/write, not the word ```SELECT```. ```query``` accepts ```SELECT```, ```WITH```, ```SHOW```, ```DESCRIBE```/```DESC```, ```CHECKSUM TABLE```, ```HELP```, and the MySQL 8 ```TABLE``` and ```VALUES``` shorthands. Everything else belongs to ```execute```, including maintenance statements that look informational but rewrite something: ```ANALYZE TABLE```, ```CHECK```, ```OPTIMIZE``` and ```REPAIR```.
-
-```EXPLAIN``` and ```ANALYZE``` are handled as what they are: prefixes in front of another statement, not statements of their own. The statement they wrap is what gets classified, after any options such as ```FORMAT=JSON``` are skipped. Which prefix it is decides whether that statement is actually carried out:
-
-| Statement | Goes to | Why |
-| :--- | :--- | :--- |
-| ```EXPLAIN SELECT ...``` | ```query``` | Produces a plan; the wrapped statement is not run. |
-| ```EXPLAIN DELETE ...``` | ```query``` | Same: ```EXPLAIN``` never carries out what it describes. |
-| ```ANALYZE SELECT ...``` | ```query``` | Runs the wrapped statement, and that statement only reads. |
-| ```ANALYZE DELETE ...``` | ```execute``` | Runs the wrapped statement, and that one deletes. |
-| ```EXPLAIN ANALYZE DELETE ...``` | ```execute``` | ```EXPLAIN ANALYZE``` runs the statement rather than planning it. |
-| ```ANALYZE TABLE t``` | ```execute``` | Not a wrapped statement but the maintenance command; it rewrites index statistics. |
-
-**If you use ```query``` for writes**, change the service name to ```mysql_query.execute```. Nothing else changes: the fields ```query```, ```values```, ```db4query``` and ```config_entry``` are identical, and the rows are still under ```result```. One thing to know: ```query``` stops your automation when a statement fails, while ```execute``` reports the failure in its response as ```succeeded: false```. If you were relying on the automation stopping, add ```raise_on_error: true``` to the call.
-
-Both services accept ```raise_on_error```; only the default differs, so a call that does not mention it behaves the way that service always did. ```query``` defaults to ```true``` and ```execute``` to ```false```, and either can be told to do the other.
-
-```yaml
-# Before (2.x)
-action: mysql_query.query
-data:
-  query: DELETE FROM readings WHERE logged_at < %s
-  values: ["{{ (now() - timedelta(days=30)).isoformat() }}"]
-
-# After (3.0.0)
-action: mysql_query.execute
-data:
-  query: DELETE FROM readings WHERE logged_at < %s
-  values: ["{{ (now() - timedelta(days=30)).isoformat() }}"]
-  raise_on_error: true   # only if you relied on query aborting on failure
-```
-
-**If you use ```execute``` for reads**, change the service name to ```mysql_query.query```. You lose nothing: ```query``` now returns ```succeeded```, ```rows_found```, ```column_names``` and ```execution_time_ms``` alongside ```result```, which are the fields that made ```execute``` worth using for a ```SELECT```.
-
-**If you only read through ```query``` and write through ```execute```**, you are already done; nothing changes for you.
-
-**One more thing that changes for both services.** A call carrying several statements separated by a semicolon is now refused. The driver has multi-statement support switched on and cannot be told otherwise, so ```SELECT 1; DELETE FROM states``` used to run *both* while reporting only the result of the first. A trailing semicolon is still fine, and so is a semicolon inside a quoted value.
-
-**What this protection is not.** The check reads the leading keywords of the statement; it is a guard against reaching for the wrong service, not a security boundary. A ```SELECT``` can still write through ```INTO OUTFILE``` or a stored function with side effects, and MySQL 8 accepts a CTE in front of an ```UPDATE```. If a connection must never write, give its database user ```SELECT``` rights only, and consider marking the connection [read-only](#read-only-connections).
-
----
-
-## Upgrading from 1.x to 2.0.0
-
-Version 2.0.0 replaces the database driver and changes how connections are managed. Your existing connections keep working and no reconfiguration is needed, but two things are worth knowing before you upgrade.
-
-**A new dependency is installed.** The integration moved from ```mysql-connector-python``` to ```aiomysql```, so queries now talk to MySQL over asyncio instead of through a worker thread. Home Assistant installs the new requirement on the first start after the upgrade; give that start a little extra time and make sure the instance can reach PyPI.
-
-**```error.sqlstate``` is always ```null```.** The new driver does not expose the SQLSTATE code. If an automation reads ```error.sqlstate``` from a ```mysql_query.execute``` response, switch it to ```error.errno``` or ```error.message```, which are unchanged and carry the same information:
-
-```yaml
-# Before (1.x)
-value_template: "{{ result.error.sqlstate == '42S02' }}"
-
-# After (2.0.0) - errno 1146 is "table doesn't exist"
-value_template: "{{ result.error.errno == 1146 }}"
-```
-
-Everything else — the service names, their fields, and the rest of the response format — is unchanged.
-
----
-
 ## Configuration
 
 ### Adding a connection (Config Flow)
@@ -162,34 +96,6 @@ All fields below appear both in the setup form and in the options form. The **Ke
 
 ### Stability & Performance
 
-### Read-only connections
-
-A connection can be marked **Read-only**, in the setup form and under **Configure**. When it is on, every call to ```mysql_query.execute``` on that connection is refused, no matter what the statement contains.
-
-This is a different kind of protection from the split between the two services. The service split catches reaching for the wrong *verb*: a ```DELETE``` sent to ```query``` is refused because ```query``` does not write. The read-only flag catches reaching for the wrong *connection*: a perfectly well-formed ```DELETE``` sent to ```execute``` is refused because that connection is not supposed to be written to at all. It needs no statement analysis and has no way around it.
-
-It exists for the connection you created to feed dashboards or reports. Mark it read-only and a write meant for your application database cannot land in it by mistake, however the statement is spelled.
-
-**Off by default**, so an existing connection keeps working exactly as it did. Turning it on affects only ```execute```; ```query``` keeps working, which is the entire point.
-
-### Encrypting the connection
-
-By default the connection to the database is **not encrypted**. Turning on **Encrypt the connection (TLS)** makes the integration negotiate TLS when it connects.
-
-**What it protects against.** The traffic is encrypted, so someone able to watch the network between Home Assistant and the database cannot read your queries, your results, or the password used to log in.
-
-**What it does not protect against.** The server's certificate is **not verified** — neither its signature nor its hostname. A database on a home network nearly always carries a self signed certificate, and requiring a verifiable one would make this option unusable for most people. The consequence is that an attacker who can actively intercept the connection and present a certificate of their own is not stopped by this. In other words: this defends against passive eavesdropping, not against an active man in the middle.
-
-**The server has to support it.** If the database has no TLS configured, the connection is refused with a clear message rather than quietly falling back to an unencrypted one. That fallback is what the driver does on its own, and it is exactly what this option exists to prevent. You can check what your server offers with:
-
-```sql
-SHOW GLOBAL VARIABLES LIKE 'have_ssl';
-```
-
-`YES` means TLS is available. `DISABLED` or `NO` means you need to configure a certificate on the database first, or leave this option off.
-
-**Why the default is off.** Most Home Assistant installations talk to a MySQL or MariaDB server that has no certificate configured at all. Defaulting to on would break every one of those connections on the first restart after an update. The default is expected to change to on in a future release, announced as a breaking change.
-
 To prevent Home Assistant from becoming unresponsive when querying large tables, this integration uses a **Row Limit**.
 - If a query returns more rows than configured, the result set is truncated, and a warning is logged in the Home Assistant logs.
 - Increasing this limit beyond 1000 is possible but should be done with caution, as large amounts of data can impact system memory.
@@ -212,6 +118,32 @@ Every configured connection owns a small pool of MySQL connections that stay ope
 Service calls on the same connection are handled one at a time. Home Assistant can fire several automations at once, and running their statements simultaneously over one connection would mix up the results, so the integration lets them queue instead. Calls on *different* configured connections do run in parallel — configure a second connection if you want two databases to be queried at the same time.
 
 Because the calls queue, a slow query delays the ones behind it on the same connection. Waiting for a free pooled connection is bounded by **Connect Timeout**: when no connection becomes available within that many seconds, the call fails with an error instead of hanging your automation. These settings are not user-configurable beyond that timeout — the pool is sized for the queueing behaviour described above.
+
+### Read-only connections
+
+A connection can be marked **Read-only**, in the setup form and under **Configure**. When it is on, every call to ```mysql_query.execute``` on that connection is refused, no matter what the statement contains.
+
+This is a different kind of protection from the split between the two services. The service split catches reaching for the wrong *verb*: a ```DELETE``` sent to ```query``` is refused because ```query``` does not write. The read-only flag catches reaching for the wrong *connection*: a perfectly well-formed ```DELETE``` sent to ```execute``` is refused because that connection is not supposed to be written to at all. It needs no statement analysis and has no way around it.
+
+It exists for the connection you created to feed dashboards or reports. Mark it read-only and a write meant for your application database cannot land in it by mistake, however the statement is spelled.
+
+**Off by default**, so an existing connection keeps working exactly as it did. Turning it on affects only ```execute```; ```query``` keeps working, which is the entire point.
+
+### Encrypting the connection
+
+By default the connection to the database is **not encrypted**. Turning on **Encrypt the connection (TLS)** makes the integration negotiate TLS when it connects.
+
+**What it does and does not protect.** The traffic is encrypted, so someone watching the network between Home Assistant and the database cannot read your queries, your results, or the password used to log in. The server's certificate is **not verified**, though — neither its signature nor its hostname — because a database on a home network nearly always carries a self signed one, and requiring a verifiable certificate would make this option unusable for most people. So this defends against passive eavesdropping, but not against an attacker who can actively intercept the connection and present a certificate of their own.
+
+**The server has to support it.** If the database has no TLS configured, the connection is refused with a clear message rather than quietly falling back to an unencrypted one. That fallback is what the driver does on its own, and it is exactly what this option exists to prevent. You can check what your server offers with:
+
+```sql
+SHOW GLOBAL VARIABLES LIKE 'have_ssl';
+```
+
+`YES` means TLS is available. `DISABLED` or `NO` means you need to configure a certificate on the database first, or leave this option off.
+
+**Why the default is off.** Most installations talk to a server with no certificate configured, and defaulting to on would break every one of them on the first restart after an update; see the [changelog](CHANGELOG.md) for when that is expected to change.
 
 ### Via YAML (Legacy Import)
 If you still use ```configuration.yaml```, your settings will be imported automatically.
@@ -238,6 +170,28 @@ The integration registers two services. Both are **responding services**: they r
 | :--- | :--- | :--- |
 | ```mysql_query.query``` | Reading only: ```SELECT```, ```WITH```, ```SHOW```, ```DESCRIBE```, ```EXPLAIN```, ```CHECKSUM TABLE```, ```HELP```, and the MySQL 8 ```TABLE```/```VALUES``` shorthands. Refuses anything that changes data or schema. | The rows under ```result```, plus ```succeeded```, ```rows_found```, ```column_names```, ```execution_time_ms``` and ```error```. Raises on a database error unless ```raise_on_error: false```. |
 | ```mysql_query.execute``` | Everything that changes something: ```INSERT```, ```UPDATE```, ```DELETE```, DDL, and maintenance statements such as ```ANALYZE``` or ```OPTIMIZE```. Refuses a read-only statement. | Full metadata: row counts, generated id, timing and errors. Reports a database error in the response instead of raising, unless ```raise_on_error: true```. |
+
+<details>
+<summary><strong>Which statements count as read-only</strong> — the exact list, and how <code>EXPLAIN</code> and <code>ANALYZE</code> are handled</summary>
+
+The dividing line is read-only versus read/write, not the word ```SELECT```. ```query``` accepts ```SELECT```, ```WITH```, ```SHOW```, ```DESCRIBE```/```DESC```, ```CHECKSUM TABLE```, ```HELP```, and the MySQL 8 ```TABLE``` and ```VALUES``` shorthands. Everything else belongs to ```execute```, including maintenance statements that look informational but rewrite something: ```ANALYZE TABLE```, ```CHECK```, ```OPTIMIZE``` and ```REPAIR```.
+
+```EXPLAIN``` and ```ANALYZE``` are prefixes in front of another statement, not statements of their own. The statement they wrap is what gets classified, after options such as ```FORMAT=JSON``` are skipped. Which prefix it is decides whether that statement is actually carried out:
+
+| Statement | Goes to | Why |
+| :--- | :--- | :--- |
+| ```EXPLAIN SELECT ...``` | ```query``` | Produces a plan; the wrapped statement is not run. |
+| ```EXPLAIN DELETE ...``` | ```query``` | Same: ```EXPLAIN``` never carries out what it describes. |
+| ```ANALYZE SELECT ...``` | ```query``` | Runs the wrapped statement, and that statement only reads. |
+| ```ANALYZE DELETE ...``` | ```execute``` | Runs the wrapped statement, and that one deletes. |
+| ```EXPLAIN ANALYZE DELETE ...``` | ```execute``` | ```EXPLAIN ANALYZE``` runs the statement rather than planning it. |
+| ```ANALYZE TABLE t``` | ```execute``` | Not a wrapped statement but the maintenance command; it rewrites index statistics. |
+
+</details>
+
+**One statement per call.** A call carrying several statements separated by a semicolon is refused by both services. The driver has multi-statement support switched on and cannot be told otherwise, so ```SELECT 1; DELETE FROM states``` would run *both* while reporting only the result of the first. A trailing semicolon is fine, and so is a semicolon inside a quoted value.
+
+**What this protection is not.** The check reads the leading keywords of the statement; it is a guard against reaching for the wrong service, not a security boundary. A ```SELECT``` can still write through ```INTO OUTFILE``` or a stored function with side effects, and MySQL 8 accepts a CTE in front of an ```UPDATE```. If a connection must never write, give its database user ```SELECT``` rights only, and consider marking the connection [read-only](#read-only-connections).
 
 Both services accept exactly the same four fields:
 
@@ -339,9 +293,7 @@ This only applies when ```values``` is present. Without it, nothing in the state
 
 A template that fails (a division by zero, a filter on a value that is not there) is treated like any other failure of the call: ```mysql_query.query``` raises and stops the automation, while ```mysql_query.execute``` returns ```succeeded: false``` with the details in ```error```. The statement is not sent to the database in that case.
 
-### 1. Service: ```mysql_query.query``` (Legacy/Simple)
-
-Ideal for quick data retrieval. It returns only the list of results under the key ```result```.
+### Service: ```mysql_query.query```
 
 **Response Format:**
 ```yaml
@@ -352,7 +304,7 @@ result:
 
 If the statement fails, this service **raises an error** and the automation or script stops at that step. Use ```mysql_query.execute``` if you would rather inspect the failure yourself and continue.
 
-#### Example 1a: A standard query on the default database
+#### Example 1a: A standard query, and using its response
 
 ```yaml
 actions:
@@ -365,6 +317,25 @@ actions:
         ORDER BY last_updated DESC
         LIMIT 5
     response_variable: recent_states
+```
+
+The response variable is a normal template variable. The rows live under ```result```, so ```recent_states.result[0]``` is the first row and each column is a key on it. Iterating works the same way:
+
+```yaml
+actions:
+  - action: mysql_query.query
+    data:
+      query: "SELECT room, temperature FROM room_readings"
+    response_variable: readings
+
+  - action: notify.persistent_notification
+    data:
+      title: Room temperatures
+      message: |-
+        Current temperatures:
+        {%- for row in readings.result %}
+        - {{ row.room }}: {{ row.temperature }}°C
+        {%- endfor %}
 ```
 
 #### Example 1b: Querying another database with ```db4query```
@@ -381,6 +352,8 @@ actions:
 ```
 
 The database user configured for this connection must have access to the database named in ```db4query```. To reach a database on a *different server*, add a second connection instead and select it with ```config_entry```.
+
+```db4query``` works the same way on ```mysql_query.execute```: the statement runs against the named database, the response's ```database``` field confirms which one was used, and a write is committed before the connection is switched back to the default database.
 
 #### Example 1c: Controlling how many rows come back
 
@@ -401,152 +374,7 @@ If you genuinely need more rows than the safety net allows, you have two options
 
 When a result set is truncated by the safety net, a warning is written to the Home Assistant log and ```rows_returned``` (in ```execute```) is lower than ```rows_found```.
 
-#### Example 1d: Using the response in an automation
-
-The response variable is a normal template variable. For ```mysql_query.query``` the rows live under ```result```, so ```result[0]``` is the first row and each column is a key on it.
-
-```yaml
-alias: Notify on the latest application error
-triggers:
-  - trigger: time_pattern
-    hours: "/1"
-conditions: []
-actions:
-  - action: mysql_query.query
-    data:
-      query: >-
-        SELECT message, created_at
-        FROM app_errors
-        ORDER BY created_at DESC
-        LIMIT 1
-    response_variable: latest_error
-
-  - condition: template
-    value_template: "{{ latest_error.result | count > 0 }}"
-
-  - action: notify.persistent_notification
-    data:
-      title: Latest application error
-      message: >-
-        {{ latest_error.result[0].message }}
-        (logged at {{ latest_error.result[0].created_at }})
-mode: single
-```
-
-Iterating over all returned rows works the same way:
-
-```yaml
-actions:
-  - action: mysql_query.query
-    data:
-      query: "SELECT room, temperature FROM room_readings"
-    response_variable: readings
-
-  - action: notify.persistent_notification
-    data:
-      title: Room temperatures
-      message: |-
-        Current temperatures:
-        {%- for row in readings.result %}
-        - {{ row.room }}: {{ row.temperature }}°C
-        {%- endfor %}
-```
-
-#### Example 1e: Reusing a query through a script (end-to-end)
-
-When several automations need the same query, put it in a script once and let the script hand the rows back to whoever called it. This takes two pieces: the script that fetches and returns the data, and the automation that calls it and works with the result.
-
-Two things to keep in mind while reading the example:
-
-- **```mysql_query.query``` always returns a list of rows under the key ```result```** — even when the query matches a single row, or none at all. So the rows are always at ```<your_response_variable>.result```, and each row is a mapping whose keys are the column names of your SELECT.
-- **The ```stop``` action is a script's return statement.** A script has no ```return```; instead you end it with ```stop```, and the variable you name in ```response_variable``` is what the caller receives. The text after ```stop:``` is only a log message explaining why the script ended.
-
-##### Step 1: Define the script
-
-Add this to ```configuration.yaml``` (or to ```scripts.yaml``` if you keep your scripts in a separate file, in which case you omit the top-level ```script:``` key).
-
-```yaml
-script:
-  get_daily_energy_report:
-    alias: Get daily energy report
-    sequence:
-      # Fetch today's rows and capture them in a local variable.
-      - action: mysql_query.query
-        data:
-          query: >-
-            SELECT sensor_id, kwh
-            FROM energy_log
-            WHERE day = CURDATE()
-            ORDER BY kwh DESC
-        response_variable: query_output
-
-      # Hand that variable back to the caller. This is the script's return value.
-      - stop: "Energy report retrieved"
-        response_variable: query_output
-    mode: single
-```
-
-The script now returns the untouched service response, so the caller receives ```{"result": [ ... ]}```.
-
-##### Step 2: Call the script and loop through the results
-
-Call the script by its own entity id (```script.get_daily_energy_report```) and capture what it returns in ```response_variable```. Note that ```script.turn_on``` does **not** work here: it fires the script and returns immediately, without a response.
-
-The rows are then a normal list you can walk with a Jinja2 for-loop:
-
-```jinja2
-{% for row in energy_data.result %}
-  - {{ row.sensor_id }}: {{ row.kwh }} kWh
-{% endfor %}
-```
-
-Put together into a complete automation:
-
-```yaml
-alias: Daily energy report
-triggers:
-  - trigger: time
-    at: "23:55:00"
-conditions: []
-actions:
-  # Run the script and store its return value in 'energy_data'.
-  - action: script.get_daily_energy_report
-    response_variable: energy_data
-
-  # Skip the notification when the query returned no rows at all.
-  - condition: template
-    value_template: "{{ energy_data.result | count > 0 }}"
-
-  # Loop over every row and build one message out of it.
-  - action: notify.persistent_notification
-    data:
-      title: Daily energy report
-      message: |-
-        Energy usage for today:
-        {%- for row in energy_data.result %}
-        - {{ row.sensor_id }}: {{ row.kwh }} kWh
-        {%- endfor %}
-
-        Total: {{ energy_data.result | map(attribute='kwh') | sum | round(2) }} kWh
-mode: single
-```
-
-Which produces a notification like:
-
-```text
-Energy usage for today:
-- solar_inverter: 18.42 kWh
-- heat_pump: 7.15 kWh
-- washing_machine: 1.08 kWh
-
-Total: 26.65 kWh
-```
-
-> **Tip:** the ```-``` in ```{%- for ... %}``` and ```{%- endfor %}``` strips the surrounding newlines, so each row lands on its own line instead of leaving a blank line between them. Use a literal block (```|-```) rather than a folded one (```>-```) for multi-line output, because a folded block joins every line into one.
-
-### 2. Service: ```mysql_query.execute``` (Advanced/Recommended)
-
-Returns a detailed response including metadata, timing, and execution details. This is the service to use for INSERT, UPDATE, DELETE, CREATE and DROP statements, because it tells you what the statement actually did.
+### Service: ```mysql_query.execute```
 
 **Response Format:**
 ```yaml
@@ -628,23 +456,7 @@ actions:
 
 ```rows_affected``` reports what MySQL actually changed. Note that an ```UPDATE``` which sets a column to the value it already had reports ```0``` affected rows even though the statement succeeded — check ```succeeded``` to see whether the statement ran, and ```rows_affected``` to see whether it changed anything.
 
-#### Example 2c: Updating another database with ```db4query```
-
-```yaml
-actions:
-  - action: mysql_query.execute
-    data:
-      query: >-
-        UPDATE devices
-        SET last_seen = NOW()
-        WHERE device_id = 'ha-hub-01'
-      db4query: inventory
-    response_variable: inventory_update
-```
-
-The statement runs against the ```inventory``` database on the same server, and the response's ```database``` field confirms which database was used. Writes made through ```db4query``` are committed before the connection is switched back to the default database.
-
-#### Example 2d: Creating a table (DDL)
+#### Example 2c: Creating a table (DDL)
 
 DDL statements return no rows, so ```rows_affected``` and ```rows_found``` stay ```null```; ```succeeded``` is what tells you it worked.
 
@@ -663,7 +475,7 @@ actions:
     response_variable: ddl_result
 ```
 
-#### Example 2e: Selecting a specific connection (Multi-Instance)
+#### Example 2d: Selecting a specific connection (Multi-Instance)
 
 When you have configured more than one connection, pass its config entry id in ```config_entry```. In the UI service editor you can pick the connection from a dropdown; in YAML you need the id itself, which you can read from the URL when you open the integration entry.
 
@@ -708,6 +520,41 @@ before they reach your automation:
 | Connection dropped | Reconnects automatically, then behaves as above | Reconnects automatically, then behaves as above |
 | No free pooled connection within the connect timeout | Raises | Returns ```succeeded: false``` and fills ```error``` |
 | No connection configured | Raises | Raises |
+
+---
+
+## Upgrading to 3.0.0
+
+**This release splits reading and writing across the two services.** Before 3.0.0 both services ran anything, and they differed only in what they returned. That meant a service called ```query``` would happily run a ```DELETE```, which is exactly the sort of accident a name should prevent.
+
+From 3.0.0 on, ```mysql_query.query``` runs only statements that read, and ```mysql_query.execute``` runs only statements that change something. Reach for the wrong one and the error tells you which one to use.
+
+The dividing line is read-only versus read/write, not the word ```SELECT```. The [Services](#services) section lists exactly what each one accepts.
+
+**If you use ```query``` for writes**, change the service name to ```mysql_query.execute```. Nothing else changes: the fields ```query```, ```values```, ```db4query``` and ```config_entry``` are identical, and the rows are still under ```result```. One thing to know: ```query``` stops your automation when a statement fails, while ```execute``` reports the failure in its response as ```succeeded: false```. If you were relying on the automation stopping, add ```raise_on_error: true``` to the call.
+
+Both services accept ```raise_on_error```; only the default differs, so a call that does not mention it behaves the way that service always did. ```query``` defaults to ```true``` and ```execute``` to ```false```, and either can be told to do the other.
+
+```yaml
+# Before (2.x)
+action: mysql_query.query
+data:
+  query: DELETE FROM readings WHERE logged_at < %s
+  values: ["{{ (now() - timedelta(days=30)).isoformat() }}"]
+
+# After (3.0.0)
+action: mysql_query.execute
+data:
+  query: DELETE FROM readings WHERE logged_at < %s
+  values: ["{{ (now() - timedelta(days=30)).isoformat() }}"]
+  raise_on_error: true   # only if you relied on query aborting on failure
+```
+
+**If you use ```execute``` for reads**, change the service name to ```mysql_query.query```. You lose nothing: ```query``` now returns ```succeeded```, ```rows_found```, ```column_names``` and ```execution_time_ms``` alongside ```result```, which are the fields that made ```execute``` worth using for a ```SELECT```.
+
+**If you only read through ```query``` and write through ```execute```**, you are already done; nothing changes for you.
+
+Two further changes apply to both services: a call may now carry only one statement, and the guard has limits worth knowing. Both are described under [Services](#services).
 
 ---
 
