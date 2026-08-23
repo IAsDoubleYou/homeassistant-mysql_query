@@ -34,11 +34,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Statements that look informational but change something are deliberately not on that list: `ANALYZE TABLE` (it rewrites index statistics), `CHECK`, `OPTIMIZE` and `REPAIR` (they can rewrite a table), `FLUSH`, `SET` and `USE` (server or session state, and `USE` would leave a pooled connection pointing at another database), `DO` and `CALL` (they evaluate code that can write), and `PREPARE`/`EXECUTE`/`DEALLOCATE`, which can carry any statement at all.
 
-`EXPLAIN` and `ANALYZE` are treated as prefixes rather than statements of their own: the statement they wrap is classified instead, after options such as `FORMAT=JSON` are skipped. `EXPLAIN` only produces a plan, so `EXPLAIN DELETE` is read-only and belongs to `query`. `ANALYZE` runs what it wraps, so `ANALYZE SELECT` belongs to `query` and `ANALYZE DELETE` to `execute`, exactly like the bare statements. `EXPLAIN ANALYZE` is the running kind. All of this was measured against MariaDB 10.11: on a three-row table, `EXPLAIN DELETE` left three rows and `ANALYZE DELETE` left none.
+`EXPLAIN` and `ANALYZE` are prefixes in front of another statement rather than statements of their own, and they are **not** handled the same way, because they do not do the same thing.
+
+- **`EXPLAIN` is always read-only**, whatever follows it. It only produces a plan and never carries out what it describes, so `EXPLAIN DELETE FROM t` goes to `query` just as `EXPLAIN SELECT` does. The classification of the wrapped statement does not affect the outcome.
+- **`ANALYZE` takes over the classification of the statement behind it**, because it really runs that statement and reports what it did. So `ANALYZE SELECT` goes to `query` and `ANALYZE DELETE` to `execute`, exactly as the bare statements would. `EXPLAIN ANALYZE` is the running kind and follows this rule too.
+- **`ANALYZE TABLE` is the exception**: it is not a prefix in front of anything but the maintenance command, and it rewrites index statistics, so it always counts as a write.
+
+Options such as `FORMAT=JSON` between the prefix and the statement are skipped. Measured against MariaDB 10.11: on a three-row table, `EXPLAIN DELETE` left three rows and `ANALYZE DELETE` left none.
 
 ### Note on what the guard is not
 
-The check strips comments and reads the leading keywords of the statement, peeling off any EXPLAIN or ANALYZE prefix; it guards against reaching for the wrong service, not against a determined write. A SELECT can still write through `INTO OUTFILE` or a stored function with side effects, and MySQL 8 accepts a CTE in front of an UPDATE or DELETE. Read-only rights on the database user remain the boundary that actually holds.
+The check strips comments and reads the leading keywords of the statement, resolving an `EXPLAIN` or `ANALYZE` prefix as described above; it guards against reaching for the wrong service, not against a determined write. A SELECT can still write through `INTO OUTFILE` or a stored function with side effects, and MySQL 8 accepts a CTE in front of an UPDATE or DELETE. Read-only rights on the database user remain the boundary that actually holds.
 
 ## [2.3.0] - 2026-08-22
 

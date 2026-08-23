@@ -169,14 +169,20 @@ The integration registers two services. Both are **responding services**: they r
 | Service | Use it for | Returns |
 | :--- | :--- | :--- |
 | ```mysql_query.query``` | Reading only: ```SELECT```, ```WITH```, ```SHOW```, ```DESCRIBE```, ```EXPLAIN```, ```CHECKSUM TABLE```, ```HELP```, and the MySQL 8 ```TABLE```/```VALUES``` shorthands. Refuses anything that changes data or schema. | The rows under ```result```, plus ```succeeded```, ```rows_found```, ```column_names```, ```execution_time_ms``` and ```error```. Raises on a database error unless ```raise_on_error: false```. |
-| ```mysql_query.execute``` | Everything that changes something: ```INSERT```, ```UPDATE```, ```DELETE```, DDL, and maintenance statements such as ```ANALYZE``` or ```OPTIMIZE```. Refuses a read-only statement. | Full metadata: row counts, generated id, timing and errors. Reports a database error in the response instead of raising, unless ```raise_on_error: true```. |
+| ```mysql_query.execute``` | Everything that changes something: ```INSERT```, ```UPDATE```, ```DELETE```, DDL, and maintenance statements such as ```ANALYZE TABLE``` or ```OPTIMIZE```. Refuses a read-only statement. | Full metadata: row counts, generated id, timing and errors. Reports a database error in the response instead of raising, unless ```raise_on_error: true```. |
 
 <details>
 <summary><strong>Which statements count as read-only</strong> — the exact list, and how <code>EXPLAIN</code> and <code>ANALYZE</code> are handled</summary>
 
 The dividing line is read-only versus read/write, not the word ```SELECT```. ```query``` accepts ```SELECT```, ```WITH```, ```SHOW```, ```DESCRIBE```/```DESC```, ```CHECKSUM TABLE```, ```HELP```, and the MySQL 8 ```TABLE``` and ```VALUES``` shorthands. Everything else belongs to ```execute```, including maintenance statements that look informational but rewrite something: ```ANALYZE TABLE```, ```CHECK```, ```OPTIMIZE``` and ```REPAIR```.
 
-```EXPLAIN``` and ```ANALYZE``` are prefixes in front of another statement, not statements of their own. The statement they wrap is what gets classified, after options such as ```FORMAT=JSON``` are skipped. Which prefix it is decides whether that statement is actually carried out:
+```EXPLAIN``` and ```ANALYZE``` are prefixes in front of another statement, not statements of their own — and they are **not** treated the same way, because they do not do the same thing:
+
+- **```EXPLAIN``` is always read-only**, whatever follows it. It only produces a plan and never runs what it describes, so ```EXPLAIN DELETE``` belongs to ```query``` just as ```EXPLAIN SELECT``` does.
+- **```ANALYZE``` takes over the classification of the statement behind it**, because it really runs that statement. ```ANALYZE SELECT``` belongs to ```query```, ```ANALYZE DELETE``` to ```execute```. ```EXPLAIN ANALYZE``` follows this rule too.
+- **```ANALYZE TABLE``` is the exception**: not a prefix in front of anything, but the maintenance command that rewrites index statistics, so always a write.
+
+Options such as ```FORMAT=JSON``` in between are skipped.
 
 | Statement | Goes to | Why |
 | :--- | :--- | :--- |
