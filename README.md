@@ -297,18 +297,28 @@ This only applies when ```values``` is present. Without it, nothing in the state
 
 #### Errors in a value
 
-A template that fails (a division by zero, a filter on a value that is not there) is treated like any other failure of the call: ```mysql_query.query``` raises and stops the automation, while ```mysql_query.execute``` returns ```succeeded: false``` with the details in ```error```. The statement is not sent to the database in that case.
+A template that fails (a division by zero, a filter on a value that is not there) is treated like any other failure of the call, so it follows ```raise_on_error```: it either stops the automation or comes back as ```succeeded: false``` with the details in ```error```. Either way the statement is not sent to the database.
 
 ### Service: ```mysql_query.query```
 
 **Response Format:**
 ```yaml
-result:
+result:                    # List: the rows, one mapping per row
   - column1: "value1"
     column2: "value2"
+succeeded: true            # Boolean: True if execution was successful
+execution_time_ms: 12.5    # Float: Time taken in milliseconds
+rows_found: 257761         # Integer: Total rows found by SQL, before the Row Limit
+column_names: []           # List: List of column names
+error:
+  message: null            # String: Human-readable error message
+  errno: null              # Integer: MySQL error number
+  sqlstate: null           # String: reserved, always null since 2.0.0
 ```
 
-If the statement fails, this service **raises an error** and the automation or script stops at that step. Use ```mysql_query.execute``` if you would rather inspect the failure yourself and continue.
+These fields are always present, whether the call succeeded or not, so a template can read the same keys either way.
+
+By default a failing statement **raises an error** here and the automation or script stops at that step. Set ```raise_on_error: false``` on the call if you would rather inspect ```succeeded``` and ```error``` yourself and carry on.
 
 #### Example 1a: A standard query, and using its response
 
@@ -401,7 +411,7 @@ error:
   sqlstate: null           # String: reserved, always null since 2.0.0
 ```
 
-Unlike ```mysql_query.query```, this service does **not** raise on a SQL error. It returns ```succeeded: false``` with the details in ```error```, so your automation keeps running and can decide what to do.
+By default a failing statement does **not** raise here: the call returns ```succeeded: false``` with the details in ```error```, so your automation keeps running and can decide what to do. Set ```raise_on_error: true``` on the call to have it stop the automation instead, which is how ```mysql_query.query``` behaves by default.
 
 #### Example 2a: Storing a sensor value in your own table
 
@@ -518,14 +528,22 @@ before they reach your automation:
 
 ### Error handling at a glance
 
-| Situation | ```mysql_query.query``` | ```mysql_query.execute``` |
+Whether a failure stops your automation or comes back in the response is decided by ```raise_on_error```, which both services accept. Only the default differs: ```query``` defaults to ```true``` (it raises) and ```execute``` to ```false``` (it reports). Set the flag explicitly and the other service's behaviour is what you get.
+
+| Situation | ```raise_on_error: true``` (query default) | ```raise_on_error: false``` (execute default) |
 | :--- | :--- | :--- |
-| Statement succeeds | Returns ```result``` | Returns full metadata, ```succeeded: true``` |
+| Statement succeeds | Returns the response, ```succeeded: true``` | Returns the response, ```succeeded: true``` |
 | SQL error (syntax, permissions, …) | Raises; the automation stops | Returns ```succeeded: false``` and fills ```error``` |
 | Failing template in ```values``` | Raises; the statement is not sent | Returns ```succeeded: false```; the statement is not sent |
 | Connection dropped | Reconnects automatically, then behaves as above | Reconnects automatically, then behaves as above |
 | No free pooled connection within the connect timeout | Raises | Returns ```succeeded: false``` and fills ```error``` |
-| No connection configured | Raises | Raises |
+
+Two things do not follow the flag, because they are refusals to run rather than outcomes of a statement, and they always raise on both services:
+
+| Situation | Both services |
+| :--- | :--- |
+| No connection configured | Raises |
+| Statement belongs to the other service, carries several statements, or targets a [read-only connection](#read-only-connections) | Raises, naming what to do instead |
 
 ---
 
