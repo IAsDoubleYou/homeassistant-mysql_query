@@ -30,7 +30,7 @@ A Home Assistant custom component that talks to a MySQL or MariaDB database thro
 
 ## Requirements
 
-- Home Assistant version 2025.3.0 or newer. HACS enforces this, so an older installation is not offered the update. The integration releases its shared resources when the last connection is unloaded, which relies on the config entry states introduced in that release.
+- Home Assistant version 2025.3.0 or newer, declared as the minimum in ```hacs.json```. HACS refuses to download the integration on anything older; whether it also hides the update notification is not documented behaviour, so on an older installation you may still be told an update exists while the download itself is blocked. The integration releases its shared resources when the last connection is unloaded, which relies on the config entry states introduced in that release.
 - The ```aiomysql``` driver, which Home Assistant installs automatically from ```manifest.json```
 
 ## Installation
