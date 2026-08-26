@@ -68,6 +68,23 @@
             "tls_unavailable": "The server accepted the connection but did not encrypt it. Configure TLS on the database, or turn the encryption option off."
         }
     },
+    "exceptions": {
+        "readonly_connection": {
+            "message": "The connection \"{connection}\" is marked read-only, so mysql_query.execute is refused on it whatever the statement says. Use another connection, or turn the read-only option off under Configure."
+        },
+        "empty_statement": {
+            "message": "No SQL statement was given."
+        },
+        "multiple_statements": {
+            "message": "This call carries {count} statements separated by a semicolon. The driver would run every one of them while only the first reports a result, so a call carries exactly one statement."
+        },
+        "write_via_query": {
+            "message": "mysql_query.query only runs statements that read, such as SELECT, WITH, SHOW, DESCRIBE and EXPLAIN. Call mysql_query.execute for a statement that changes anything; the parameters are the same."
+        },
+        "read_via_execute": {
+            "message": "mysql_query.execute only runs statements that change something. Call mysql_query.query for a statement that only reads; it reports the same metadata."
+        }
+    },
     "services": {
         "execute": {
             "name": "Execute",

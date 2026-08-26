@@ -156,42 +156,44 @@ def _async_check_call(instance: MySQLInstance, service: str, query: str) -> None
     Raises rather than reporting through the response: this is a refusal to
     run anything, not the outcome of a statement, and a caller that does not
     read `succeeded` would otherwise take it for a success.
+
+    Every raise carries a translation_key instead of only an English message,
+    so Home Assistant can render it in the caller's own language the same way
+    it already does for the config flow errors. __str__ on the exception, and
+    therefore the log, stays in English regardless; that is how Home
+    Assistant's translated exceptions work.
     """
     if service == SERVICE_EXECUTE and instance.read_only:
         raise HomeAssistantError(
-            f"The connection '{instance.title}' is marked read-only, so "
-            f"{DOMAIN}.{SERVICE_EXECUTE} is refused on it whatever the "
-            "statement says. Use another connection, or turn the read-only "
-            "option off under Configure."
+            translation_domain=DOMAIN,
+            translation_key="readonly_connection",
+            translation_placeholders={"connection": instance.title},
         )
 
     statements = split_statements(query)
 
     if not statements:
-        raise HomeAssistantError("No SQL statement was given.")
+        raise HomeAssistantError(
+            translation_domain=DOMAIN, translation_key="empty_statement"
+        )
 
     if len(statements) > 1:
         raise HomeAssistantError(
-            f"This call carries {len(statements)} statements separated by a "
-            "semicolon. The driver would run every one of them while only the "
-            "first reports a result, so a call carries exactly one statement."
+            translation_domain=DOMAIN,
+            translation_key="multiple_statements",
+            translation_placeholders={"count": str(len(statements))},
         )
 
     read_only = is_read_only(statements[0])
 
     if service == SERVICE_QUERY and not read_only:
         raise HomeAssistantError(
-            f"{DOMAIN}.{SERVICE_QUERY} only runs statements that read, such "
-            f"as SELECT, WITH, SHOW, DESCRIBE and EXPLAIN. Call "
-            f"{DOMAIN}.{SERVICE_EXECUTE} for a statement that changes "
-            "anything; the parameters are the same."
+            translation_domain=DOMAIN, translation_key="write_via_query"
         )
 
     if service == SERVICE_EXECUTE and read_only:
         raise HomeAssistantError(
-            f"{DOMAIN}.{SERVICE_EXECUTE} only runs statements that change "
-            f"something. Call {DOMAIN}.{SERVICE_QUERY} for a statement that "
-            "only reads; it reports the same metadata."
+            translation_domain=DOMAIN, translation_key="read_via_execute"
         )
 
 

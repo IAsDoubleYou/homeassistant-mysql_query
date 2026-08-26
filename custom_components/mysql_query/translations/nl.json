@@ -68,6 +68,23 @@
             "tls_unavailable": "De server accepteerde de verbinding maar versleutelde die niet. Configureer TLS op de database, of zet de versleutelingsoptie uit."
         }
     },
+    "exceptions": {
+        "readonly_connection": {
+            "message": "De verbinding \"{connection}\" staat op alleen-lezen, dus mysql_query.execute wordt hierop geweigerd, ongeacht wat het statement zegt. Gebruik een andere verbinding, of zet de alleen-lezen-optie uit via Configureren."
+        },
+        "empty_statement": {
+            "message": "Er is geen SQL-statement opgegeven."
+        },
+        "multiple_statements": {
+            "message": "Deze aanroep bevat {count} statements gescheiden door een puntkomma. De driver zou ze allemaal uitvoeren terwijl alleen de eerste een resultaat rapporteert, dus een aanroep bevat precies één statement."
+        },
+        "write_via_query": {
+            "message": "mysql_query.query voert alleen statements uit die lezen, zoals SELECT, WITH, SHOW, DESCRIBE en EXPLAIN. Roep mysql_query.execute aan voor een statement dat iets wijzigt; de parameters zijn hetzelfde."
+        },
+        "read_via_execute": {
+            "message": "mysql_query.execute voert alleen statements uit die iets wijzigen. Roep mysql_query.query aan voor een statement dat alleen leest; die rapporteert dezelfde metadata."
+        }
+    },
     "services": {
         "execute": {
             "name": "Uitvoeren",

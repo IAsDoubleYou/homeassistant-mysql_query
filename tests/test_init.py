@@ -519,6 +519,8 @@ async def test_query_refuses_a_write_statement(hass: HomeAssistant) -> None:
     assert "statements that read" in str(err.value)
     # Refused before anything was borrowed from the pool.
     assert pool.acquired == 0
+    assert err.value.translation_domain == DOMAIN
+    assert err.value.translation_key == "write_via_query"
 
 
 async def test_execute_refuses_a_read_statement(hass: HomeAssistant) -> None:
@@ -526,7 +528,7 @@ async def test_execute_refuses_a_read_statement(hass: HomeAssistant) -> None:
     pool = FakePool(FakeConnection(_select_cursor(rows=[], columns=["id"])))
     await _setup_entry(hass, pool)
 
-    with pytest.raises(HomeAssistantError, match=re.escape("mysql_query.query")):
+    with pytest.raises(HomeAssistantError, match=re.escape("mysql_query.query")) as err:
         await hass.services.async_call(
             DOMAIN,
             SERVICE_EXECUTE,
@@ -536,6 +538,8 @@ async def test_execute_refuses_a_read_statement(hass: HomeAssistant) -> None:
         )
 
     assert pool.acquired == 0
+    assert err.value.translation_domain == DOMAIN
+    assert err.value.translation_key == "read_via_execute"
 
 
 @pytest.mark.parametrize("service", [SERVICE_QUERY, SERVICE_EXECUTE])
@@ -550,7 +554,7 @@ async def test_multiple_statements_are_refused(
     pool = FakePool(FakeConnection(FakeCursor()))
     await _setup_entry(hass, pool)
 
-    with pytest.raises(HomeAssistantError, match="exactly one statement"):
+    with pytest.raises(HomeAssistantError, match="exactly one statement") as err:
         await hass.services.async_call(
             DOMAIN,
             service,
@@ -560,6 +564,33 @@ async def test_multiple_statements_are_refused(
         )
 
     assert pool.acquired == 0
+    assert err.value.translation_domain == DOMAIN
+    assert err.value.translation_key == "multiple_statements"
+    assert err.value.translation_placeholders == {"count": "2"}
+
+
+@pytest.mark.parametrize("service", [SERVICE_QUERY, SERVICE_EXECUTE])
+async def test_empty_statement_is_refused(hass: HomeAssistant, service: str) -> None:
+    """An empty query string is refused on both services, translated too.
+
+    cv.string accepts an empty string, so this is a guard of its own rather
+    than something the schema already rules out.
+    """
+    pool = FakePool(FakeConnection(FakeCursor()))
+    await _setup_entry(hass, pool)
+
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call(
+            DOMAIN,
+            service,
+            {ATTR_QUERY: ""},
+            blocking=True,
+            return_response=True,
+        )
+
+    assert pool.acquired == 0
+    assert err.value.translation_domain == DOMAIN
+    assert err.value.translation_key == "empty_statement"
 
 
 async def test_a_trailing_semicolon_is_not_a_second_statement(
@@ -621,9 +652,11 @@ async def test_readonly_connection_refuses_execute(hass: HomeAssistant) -> None:
     valid write aimed at the wrong connection is stopped here.
     """
     pool = FakePool(FakeConnection(FakeCursor()))
-    await _setup_entry(hass, pool, data={**ENTRY_DATA, CONF_READONLY_CONNECTION: True})
+    entry = await _setup_entry(
+        hass, pool, data={**ENTRY_DATA, CONF_READONLY_CONNECTION: True}
+    )
 
-    with pytest.raises(HomeAssistantError, match="read-only"):
+    with pytest.raises(HomeAssistantError, match="read-only") as err:
         await hass.services.async_call(
             DOMAIN,
             SERVICE_EXECUTE,
@@ -631,6 +664,10 @@ async def test_readonly_connection_refuses_execute(hass: HomeAssistant) -> None:
             blocking=True,
             return_response=True,
         )
+
+    assert err.value.translation_domain == DOMAIN
+    assert err.value.translation_key == "readonly_connection"
+    assert err.value.translation_placeholders == {"connection": entry.title}
 
     assert pool.acquired == 0
 
