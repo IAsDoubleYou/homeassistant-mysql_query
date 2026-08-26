@@ -76,7 +76,7 @@
             "message": "Er is geen SQL-statement opgegeven."
         },
         "multiple_statements": {
-            "message": "Deze aanroep bevat {count} statements gescheiden door een puntkomma. De driver zou ze allemaal uitvoeren terwijl alleen de eerste een resultaat rapporteert, dus een aanroep bevat precies één statement."
+            "message": "Deze aanroep bevat {count} statements gescheiden door een puntkomma. De driver zou ze allemaal uitvoeren terwijl alleen de eerste een resultaat rapporteert, daarom moet een aanroep precies één statement bevatten."
         },
         "write_via_query": {
             "message": "mysql_query.query voert alleen statements uit die lezen, zoals SELECT, WITH, SHOW, DESCRIBE en EXPLAIN. Roep mysql_query.execute aan voor een statement dat iets wijzigt; de parameters zijn hetzelfde."
