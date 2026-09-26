@@ -6,6 +6,8 @@
 [![GitHub All Releases][downloads_total_shield]][releases]
 [![Community Forum][community_forum_shield]][community_forum]
 
+> **Looking for continuous sensors instead of actions you trigger on demand?** See [HA MySQL](https://github.com/IAsDoubleYou/ha_mysql), a sibling integration built for that — full comparison at the [bottom of this README](#ha-mysql-or-mysql-query).
+
 A Home Assistant custom component that talks to a MySQL or MariaDB database through two ```Responding services```: ```mysql_query.query``` reads with a SELECT and hands you the rows, and ```mysql_query.execute``` writes with an INSERT, UPDATE, DELETE or DDL statement and hands you what it changed. Both return an iterable data structure you can use straight from a template.
 
 > ⚠️ **Upgrading from an earlier version?** v3.0.0 changes what ```query``` and ```execute``` each accept — see [Upgrading to 3.0.0](#upgrading-to-300) before you update.
@@ -583,9 +585,19 @@ Two further changes apply to both services: a call may now carry only one statem
 
 ---
 
-## Related Projects
+## HA MySQL or MySQL Query?
 
-- [HA MySQL](https://github.com/IAsDoubleYou/ha_mysql) - MySQL sensor component.
+Two integrations, two different jobs. They can be installed side by side.
+
+| | **[HA MySQL](https://github.com/IAsDoubleYou/ha_mysql)** | **MySQL Query** (this repository) |
+|---|---|---|
+| Approach | Automatic sensors | Actions (services) for scripts and automations |
+| Runs a query | On its own interval, per sensor | Only when you call the action |
+| Result ends up in | The state and the attributes of a sensor | The response of the action, and optionally in an event |
+| Creates entities | Yes, one sensor per query | No |
+| History and statistics | Yes, through the sensor | No |
+| Writing to the database | No, `SELECT` only | Yes, `INSERT`, `UPDATE` and `DELETE` as well |
+| Best for | Values you want to follow continuously, dashboards, the energy dashboard | Lookups on demand, queries with runtime parameters, changing data |
 
 ## Changelog
 
