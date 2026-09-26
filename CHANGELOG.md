@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-09-26
+
+Releases ship a `homeassistant-mysql_query.zip` asset again, built and attached automatically instead of by hand.
+
+### Added
+
+- `.github/workflows/release.yaml`, which builds `custom_components/mysql_query/` into `homeassistant-mysql_query.zip` and attaches it to a release when it is published. `zip_release` and `filename` are back in `hacs.json`, so HACS installs from that asset instead of fetching every file separately through the GitHub API, and the per-release downloads badge in the README works again.
+
 ## [3.0.0] - 2026-08-23
 
 **Breaking:** reading and writing are now split across the two services. `query` runs only statements that read, `execute` only statements that change something. The Migration section further down in this entry has the details; it is a one-word change per call.

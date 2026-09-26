@@ -1,0 +1,34 @@
+name: Attach the release zip
+
+# Runs when a release is published, whether that happens through the web UI
+# after tagging or through the API. Tagging and publishing stay a manual,
+# human decision; this only builds and attaches the asset that HACS installs
+# from (hacs.json sets zip_release) and that the downloads badge counts.
+on:
+  release:
+    types: [published]
+
+jobs:
+  attach-zip:
+    runs-on: "ubuntu-latest"
+    permissions:
+      contents: write
+    steps:
+      - uses: "actions/checkout@v5"
+      - name: Build homeassistant-mysql_query.zip
+        # Zipped from inside the component directory, so the archive holds
+        # manifest.json and the rest directly at its root. A wrapping
+        # mysql_query/ folder here is what used to send __init__.py to
+        # custom_components/mysql_query/mysql_query/__init__.py on a manual
+        # install, one level too deep.
+        run: |
+          cd custom_components/mysql_query
+          zip -r "$GITHUB_WORKSPACE/homeassistant-mysql_query.zip" .
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            homeassistant-mysql_query.zip \
+            --repo "${{ github.repository }}" \
+            --clobber
