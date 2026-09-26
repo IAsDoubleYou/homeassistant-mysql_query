@@ -11,6 +11,7 @@
                     "mysql_password": "Wachtwoord",
                     "mysql_db": "Database",
                     "mysql_timeout": "Verbindingstime-out (seconden)",
+                    "mysql_query_timeout": "Query-time-out (seconden)",
                     "mysql_charset": "Tekenset",
                     "mysql_collation": "Collatie",
                     "mysql_autocommit": "Autocommit",
@@ -19,6 +20,7 @@
                     "mysql_readonly": "Alleen-lezen verbinding"
                 },
                 "data_description": {
+                    "mysql_query_timeout": "Begrenst een hele aanroep: het lenen van een pool-connectie, deze zo nodig opnieuw verbinden, en het statement zelf uitvoeren. Een statement dat dan nog loopt wordt als mislukt behandeld en de connectie wordt weggegooid in plaats van hergebruikt.",
                     "mysql_use_tls": "Versleutelt het verkeer naar de database. De server moet TLS geconfigureerd hebben; zonder TLS mislukt de verbinding. Het servercertificaat wordt niet gecontroleerd, dus dit beschermt tegen meelezen op het netwerk, niet tegen een server die zich voordoet als de jouwe. Standaard uit, zodat bestaande installaties blijven werken.",
                     "mysql_readonly": "Weigert de Uitvoeren-actie op deze verbinding, wat het statement ook zegt. Gebruik dit voor een verbinding die alleen dashboards of rapportages voedt, zodat een schrijfactie die op de verkeerde verbinding terechtkomt hier niet landt. Standaard uit."
                 }
@@ -47,6 +49,7 @@
                     "mysql_password": "Wachtwoord",
                     "mysql_db": "Database",
                     "mysql_timeout": "Verbindingstime-out (seconden)",
+                    "mysql_query_timeout": "Query-time-out (seconden)",
                     "mysql_charset": "Tekenset",
                     "mysql_collation": "Collatie",
                     "mysql_autocommit": "Autocommit",
@@ -55,6 +58,7 @@
                     "mysql_readonly": "Alleen-lezen verbinding"
                 },
                 "data_description": {
+                    "mysql_query_timeout": "Begrenst een hele aanroep: het lenen van een pool-connectie, deze zo nodig opnieuw verbinden, en het statement zelf uitvoeren. Een statement dat dan nog loopt wordt als mislukt behandeld en de connectie wordt weggegooid in plaats van hergebruikt.",
                     "mysql_use_tls": "Versleutelt het verkeer naar de database. De server moet TLS geconfigureerd hebben; zonder TLS mislukt de verbinding. Het servercertificaat wordt niet gecontroleerd, dus dit beschermt tegen meelezen op het netwerk, niet tegen een server die zich voordoet als de jouwe. Standaard uit, zodat bestaande installaties blijven werken.",
                     "mysql_readonly": "Weigert de Uitvoeren-actie op deze verbinding, wat het statement ook zegt. Gebruik dit voor een verbinding die alleen dashboards of rapportages voedt, zodat een schrijfactie die op de verkeerde verbinding terechtkomt hier niet landt. Standaard uit."
                 }

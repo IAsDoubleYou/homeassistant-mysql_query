@@ -22,12 +22,14 @@ from .const import (
     CONF_MYSQL_PORT,
     CONF_MYSQL_TIMEOUT,
     CONF_MYSQL_USERNAME,
+    CONF_QUERY_TIMEOUT,
     CONF_READONLY_CONNECTION,
     CONF_ROW_LIMIT,
     CONF_USE_TLS,
     DEFAULT_MYSQL_AUTOCOMMIT,
     DEFAULT_MYSQL_PORT,
     DEFAULT_MYSQL_TIMEOUT,
+    DEFAULT_QUERY_TIMEOUT,
     DEFAULT_READONLY_CONNECTION,
     DEFAULT_ROW_LIMIT,
     DEFAULT_USE_TLS,
@@ -113,6 +115,10 @@ def get_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Optional(
                 CONF_MYSQL_TIMEOUT,
                 default=defaults.get(CONF_MYSQL_TIMEOUT, DEFAULT_MYSQL_TIMEOUT),
+            ): int,
+            vol.Optional(
+                CONF_QUERY_TIMEOUT,
+                default=defaults.get(CONF_QUERY_TIMEOUT, DEFAULT_QUERY_TIMEOUT),
             ): int,
             vol.Optional(
                 CONF_MYSQL_CHARSET, default=defaults.get(CONF_MYSQL_CHARSET, "")

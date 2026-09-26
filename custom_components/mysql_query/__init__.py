@@ -35,11 +35,11 @@ from .const import (
     ATTR_RAISE_ON_ERROR,
     ATTR_VALUES,
     CONF_MYSQL_DB,
-    CONF_MYSQL_TIMEOUT,
     CONF_MYSQL_USERNAME,
+    CONF_QUERY_TIMEOUT,
     CONF_READONLY_CONNECTION,
     CONF_ROW_LIMIT,
-    DEFAULT_MYSQL_TIMEOUT,
+    DEFAULT_QUERY_TIMEOUT,
     DEFAULT_READONLY_CONNECTION,
     DEFAULT_ROW_LIMIT,
     DOMAIN,
@@ -391,33 +391,48 @@ async def _async_run_statement(
 ) -> QueryResult:
     """Run a statement on a connection borrowed from the pool."""
     default_db = instance.config.get(CONF_MYSQL_DB)
-    timeout = int(instance.config.get(CONF_MYSQL_TIMEOUT, DEFAULT_MYSQL_TIMEOUT))
+    timeout = int(instance.config.get(CONF_QUERY_TIMEOUT, DEFAULT_QUERY_TIMEOUT))
     # A one-off query against another database reuses the pooled connection and
     # switches back afterwards, instead of paying for a new connection.
     switch_db = bool(
         db4query and default_db and db4query.lower() != str(default_db).lower()
     )
 
-    # Never wait for a free connection indefinitely; the pool is bounded.
-    async with asyncio.timeout(timeout):
-        conn = await instance.pool.acquire()
-
+    conn: aiomysql.Connection | None = None
+    timed_out = False
     try:
-        # The server can have dropped this connection while it sat idle in the
-        # pool (wait_timeout); ping() reconnects instead of failing the call.
-        await conn.ping(reconnect=True)
+        # Bounds the whole call, not only the wait for a free connection: a
+        # statement that stops getting answers after that must not hold its
+        # pooled connection forever either.
+        async with asyncio.timeout(timeout):
+            conn = await instance.pool.acquire()
 
-        if switch_db:
-            await conn.select_db(db4query)
-        try:
-            return await _async_execute_statement(
-                conn, query, row_limit, db4query or default_db, values
-            )
-        finally:
+            # The server can have dropped this connection while it sat idle in
+            # the pool (wait_timeout); ping() reconnects instead of failing
+            # the call.
+            await conn.ping(reconnect=True)
+
             if switch_db:
-                await _async_restore_database(conn, str(default_db))
+                await conn.select_db(db4query)
+            try:
+                return await _async_execute_statement(
+                    conn, query, row_limit, db4query or default_db, values
+                )
+            finally:
+                if switch_db:
+                    await _async_restore_database(conn, str(default_db))
+    except TimeoutError:
+        timed_out = True
+        raise
     finally:
-        instance.pool.release(conn)
+        if conn is not None:
+            if timed_out:
+                # It may still have a statement in flight on the wire; handing
+                # it back to the pool would let the next call read its
+                # leftovers, so it is dropped instead of released.
+                conn.close()
+            else:
+                instance.pool.release(conn)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -566,7 +581,10 @@ async def async_setup_entry(  # noqa: PLR0915
             response["error"] = {"message": message, "errno": errno, "sqlstate": None}
             return _service_response(call, response)
         except TimeoutError as e:
-            message = "Timed out waiting for a free connection from the pool"
+            message = (
+                "Timed out borrowing a connection from the pool or running "
+                "the statement"
+            )
             _LOGGER.error("%s (%s)", message, instance.title)
             if _raises_on_error(call):
                 raise HomeAssistantError(message) from e

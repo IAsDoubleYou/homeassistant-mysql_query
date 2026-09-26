@@ -24,6 +24,7 @@ CONF_MYSQL_USERNAME: Final = "mysql_username"
 CONF_MYSQL_PASSWORD: Final = "mysql_password"
 CONF_MYSQL_DB: Final = "mysql_db"
 CONF_MYSQL_TIMEOUT: Final = "mysql_timeout"
+CONF_QUERY_TIMEOUT: Final = "mysql_query_timeout"
 CONF_MYSQL_CHARSET: Final = "mysql_charset"
 CONF_MYSQL_COLLATION: Final = "mysql_collation"
 CONF_AUTOCOMMIT: Final = "mysql_autocommit"
@@ -34,6 +35,11 @@ CONF_READONLY_CONNECTION: Final = "mysql_readonly"
 # Defaults
 DEFAULT_MYSQL_PORT: Final = 3306
 DEFAULT_MYSQL_TIMEOUT: Final = 10
+# Bounds a whole service call: borrowing a pooled connection, reconnecting it
+# if needed, and running the statement. Without this only the wait for a free
+# connection was bounded, so a statement that stopped getting answers after
+# that could hold its connection forever and eventually exhaust the pool.
+DEFAULT_QUERY_TIMEOUT: Final = 30
 DEFAULT_MYSQL_AUTOCOMMIT: Final = True
 DEFAULT_ROW_LIMIT: Final = 1000
 

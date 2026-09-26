@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-09-26
+
+### Added
+
+- **Query Timeout (seconds)** (`mysql_query_timeout`, default `30`), a new
+  connection setting that bounds a whole service call — waiting for a free
+  pooled connection, reconnecting it if needed, and running the statement —
+  instead of only the wait for a free connection. A call still running when
+  it elapses fails with an error instead of hanging, and its connection is
+  dropped instead of being handed back for the next call to reuse.
+
+### Fixed
+
+- `manifest.json` now reports `3.2.0`; the previous release (v3.1.0, the
+  automated release-zip workflow) had shipped with the version field still
+  reading `3.0.0`.
+
 ## [3.1.0] - 2026-09-26
 
 Releases ship a `homeassistant-mysql_query.zip` asset again, built and attached automatically instead of by hand.

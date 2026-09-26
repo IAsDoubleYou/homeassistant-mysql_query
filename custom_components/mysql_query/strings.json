@@ -11,6 +11,7 @@
                     "mysql_password": "Password",
                     "mysql_db": "Database",
                     "mysql_timeout": "Connect Timeout (seconds)",
+                    "mysql_query_timeout": "Query Timeout (seconds)",
                     "mysql_charset": "Charset",
                     "mysql_collation": "Collation",
                     "mysql_autocommit": "Autocommit",
@@ -19,6 +20,7 @@
                     "mysql_readonly": "Read-only connection"
                 },
                 "data_description": {
+                    "mysql_query_timeout": "Bounds a whole call: borrowing a pooled connection, reconnecting it if needed, and running the statement. A statement still running when this elapses is treated as failed and its connection is dropped instead of reused.",
                     "mysql_use_tls": "Encrypts the traffic to the database. The server must have TLS configured; the connection fails if it does not. The server certificate is not verified, so this protects against reading along on the network, not against a server impersonating yours. Off by default so existing setups keep working.",
                     "mysql_readonly": "Refuses the Execute action on this connection, whatever the statement says. Use it for a connection that only feeds dashboards or reports, so a write aimed at the wrong connection cannot land here. Off by default."
                 }
@@ -47,6 +49,7 @@
                     "mysql_password": "Password",
                     "mysql_db": "Database",
                     "mysql_timeout": "Connect Timeout (seconds)",
+                    "mysql_query_timeout": "Query Timeout (seconds)",
                     "mysql_charset": "Charset",
                     "mysql_collation": "Collation",
                     "mysql_autocommit": "Autocommit",
@@ -55,6 +58,7 @@
                     "mysql_readonly": "Read-only connection"
                 },
                 "data_description": {
+                    "mysql_query_timeout": "Bounds a whole call: borrowing a pooled connection, reconnecting it if needed, and running the statement. A statement still running when this elapses is treated as failed and its connection is dropped instead of reused.",
                     "mysql_use_tls": "Encrypts the traffic to the database. The server must have TLS configured; the connection fails if it does not. The server certificate is not verified, so this protects against reading along on the network, not against a server impersonating yours. Off by default so existing setups keep working.",
                     "mysql_readonly": "Refuses the Execute action on this connection, whatever the statement says. Use it for a connection that only feeds dashboards or reports, so a write aimed at the wrong connection cannot land here. Off by default."
                 }

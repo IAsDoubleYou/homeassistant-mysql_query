@@ -89,7 +89,8 @@ All fields below appear both in the setup form and in the options form. The **Ke
 | **Username** | ```mysql_username``` | Yes | – | Database user used for every query on this connection. Grant it only the privileges you actually need. |
 | **Password** | ```mysql_password``` | Yes | – | Password of that database user. Stored in the Home Assistant config entry and never written to the log. |
 | **Database** | ```mysql_db``` | Yes | – | Name of the default database. Every query on this connection runs against it unless you override it with ```db4query```. |
-| **Connect Timeout (seconds)** | ```mysql_timeout``` | No | ```10``` | How long to wait for a connection before giving up, both when opening a new one and when waiting for a free connection from the pool. Raise it for slow or remote servers. |
+| **Connect Timeout (seconds)** | ```mysql_timeout``` | No | ```10``` | How long to wait when opening a new connection to the server. Raise it for slow or remote servers. |
+| **Query Timeout (seconds)** | ```mysql_query_timeout``` | No | ```30``` | Bounds a whole call: waiting for a free pooled connection, reconnecting it if needed, and running the statement. A call still running when this elapses fails with an error instead of hanging your automation, and its connection is dropped instead of reused. |
 | **Charset** | ```mysql_charset``` | No | driver default (```utf8mb4```) | Optional character set for the connection, for example ```utf8mb4```. Leave empty to use the driver default. |
 | **Collation** | ```mysql_collation``` | No | server default | Optional collation, for example ```utf8mb4_unicode_ci```. Must be compatible with the chosen charset. Leave empty to use the server default. |
 | **Autocommit** | ```mysql_autocommit``` | No | ```true``` | When enabled, every statement is committed immediately. With autocommit disabled the integration still commits explicitly after a successful non-SELECT statement, so writes are not lost. |
@@ -120,7 +121,7 @@ Every configured connection owns a small pool of MySQL connections that stay ope
 
 Service calls on the same connection are handled one at a time. Home Assistant can fire several automations at once, and running their statements simultaneously over one connection would mix up the results, so the integration lets them queue instead. Calls on *different* configured connections do run in parallel — configure a second connection if you want two databases to be queried at the same time.
 
-Because the calls queue, a slow query delays the ones behind it on the same connection. Waiting for a free pooled connection is bounded by **Connect Timeout**: when no connection becomes available within that many seconds, the call fails with an error instead of hanging your automation. These settings are not user-configurable beyond that timeout — the pool is sized for the queueing behaviour described above.
+Because the calls queue, a slow query delays the ones behind it on the same connection. The whole of a queued call — waiting for a free pooled connection, reconnecting it if needed, and running the statement — is bounded by **Query Timeout**: when that elapses, the call fails with an error instead of hanging your automation, and the connection is dropped rather than handed to the next call in an unknown state. The pool itself is not user-configurable beyond that timeout; it is sized for the queueing behaviour described above.
 
 ### Read-only connections
 

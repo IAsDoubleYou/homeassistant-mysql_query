@@ -25,6 +25,7 @@ from custom_components.mysql_query.const import (
     CONF_MYSQL_PORT,
     CONF_MYSQL_TIMEOUT,
     CONF_MYSQL_USERNAME,
+    CONF_QUERY_TIMEOUT,
     CONF_ROW_LIMIT,
     DOMAIN,
     POOL_MAX_SIZE,
@@ -177,7 +178,7 @@ async def test_acquire_timeout_is_reported(hass: HomeAssistant) -> None:
         await asyncio.sleep(3600)
         raise AssertionError("should not be reached")
 
-    await _setup_entry(hass, pool, data={**ENTRY_DATA, CONF_MYSQL_TIMEOUT: 0})
+    await _setup_entry(hass, pool, data={**ENTRY_DATA, CONF_QUERY_TIMEOUT: 0})
     pool.acquire = never_acquire
 
     with pytest.raises(HomeAssistantError, match="Timed out"):
@@ -188,6 +189,36 @@ async def test_acquire_timeout_is_reported(hass: HomeAssistant) -> None:
             blocking=True,
             return_response=True,
         )
+
+
+async def test_query_timeout_is_reported(hass: HomeAssistant) -> None:
+    """A statement that stops getting answers fails the call cleanly too.
+
+    Before this fix only the wait for a free connection was bounded, so a
+    query that hung after that point held its connection forever.
+    """
+
+    async def hang(query: str) -> None:
+        await asyncio.sleep(3600)
+
+    connection = FakeConnection(_cursor(on_execute=hang))
+    pool = FakePool(connection)
+
+    await _setup_entry(hass, pool, data={**ENTRY_DATA, CONF_QUERY_TIMEOUT: 0})
+
+    with pytest.raises(HomeAssistantError, match="Timed out"):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_QUERY,
+            {ATTR_QUERY: "SELECT 1"},
+            blocking=True,
+            return_response=True,
+        )
+
+    # The connection may still have a statement in flight on the wire, so it
+    # is dropped instead of being handed back for the next call to reuse.
+    assert connection.closed
+    assert pool.released == 0
 
 
 async def test_db4query_switches_and_restores_the_database(
