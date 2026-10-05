@@ -373,7 +373,7 @@ async def _async_restore_database(conn: aiomysql.Connection, database: str) -> N
     """Point a pooled connection back at the database of its config entry."""
     try:
         await conn.select_db(database)
-    except (aiomysql.Error, OSError):
+    except aiomysql.Error, OSError:
         # Never return a connection to the pool while it still points at
         # another database: closing it makes the pool build a fresh one.
         _LOGGER.warning(
