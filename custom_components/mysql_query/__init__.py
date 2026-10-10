@@ -49,6 +49,8 @@ from .const import (
     DEFAULT_READONLY_CONNECTION,
     DEFAULT_ROW_LIMIT,
     DOMAIN,
+    ENTRY_VERSION,
+    OPTION_KEYS,
     SERVICE_EXECUTE,
     SERVICE_QUERY,
 )
@@ -60,6 +62,7 @@ from .db import (
     async_create_pool,
     async_verify_tls,
     error_details,
+    merged_config,
     tls_requested,
 )
 from .sql import is_read_only, split_statements
@@ -490,7 +493,7 @@ async def _async_open_pool(entry: ConfigEntry) -> aiomysql.Pool:
     A pool that was built but is then found unusable is closed again before the
     exception leaves, so a failed attempt never leaves connections behind.
     """
-    config = entry.data
+    config = merged_config(entry)
 
     try:
         pool = await async_create_pool(config)
@@ -541,7 +544,9 @@ async def async_setup_entry(  # noqa: PLR0915
     hass. It is registered once and serves every connection, looking up the
     one to use at call time.
     """
-    config = entry.data
+    # Connection and behaviour settings are stored apart, in the entry data and
+    # its options, but everything below reads them as one.
+    config = merged_config(entry)
     pool = await _async_open_pool(entry)
 
     entry.runtime_data = MySQLInstance(
@@ -552,9 +557,6 @@ async def async_setup_entry(  # noqa: PLR0915
             config.get(CONF_READONLY_CONNECTION, DEFAULT_READONLY_CONNECTION)
         ),
     )
-
-    # Changed settings must rebuild the pool, so reload the entry on update.
-    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     async def async_handle_service(call: ServiceCall) -> ServiceResponse:
         """Handle service calls with instance selection and row limiting."""
@@ -676,9 +678,28 @@ async def async_setup_entry(  # noqa: PLR0915
     return True
 
 
-async def async_reload_entry(hass: HomeAssistant, entry: MySQLQueryConfigEntry) -> None:
-    """Reload the entry after its settings changed."""
-    await hass.config_entries.async_reload(entry.entry_id)
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Move an entry to the current version.
+
+    Version 1 kept every setting in the entry data. The settings that only
+    decide how queries behave moved to the options in version 2. An entry
+    without some of them keeps going without: the defaults fill the gap when
+    the settings are read.
+    """
+    if entry.version > ENTRY_VERSION:
+        # Written by a newer release; this one cannot read it.
+        return False
+
+    if entry.version == 1:
+        moved = {key: entry.data[key] for key in OPTION_KEYS if key in entry.data}
+        hass.config_entries.async_update_entry(
+            entry,
+            data={k: v for k, v in entry.data.items() if k not in OPTION_KEYS},
+            options={**moved, **entry.options},
+            version=ENTRY_VERSION,
+        )
+
+    return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: MySQLQueryConfigEntry) -> bool:

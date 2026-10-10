@@ -9,6 +9,7 @@ from typing import Any
 
 import aiomysql
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.util.ssl import client_context_no_verify
 
 from .const import (
@@ -42,6 +43,11 @@ _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_]+$")
 
 class TLSUnavailableError(Exception):
     """Raised when TLS was asked for but the connection ended up in plain text."""
+
+
+def merged_config(entry: ConfigEntry) -> dict[str, Any]:
+    """Return every setting of an entry: its data and its options together."""
+    return {**entry.data, **entry.options}
 
 
 def tls_requested(config: Mapping[str, Any]) -> bool:

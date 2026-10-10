@@ -32,6 +32,19 @@ CONF_ROW_LIMIT: Final = "mysql_row_limit"
 CONF_USE_TLS: Final = "mysql_use_tls"
 CONF_READONLY_CONNECTION: Final = "mysql_readonly"
 
+# The version of the config entries this release writes. Version 2 moved the
+# settings that only decide how queries behave from the entry data to its options.
+ENTRY_VERSION: Final = 2
+
+# The settings that only decide how queries behave. They live in the options of
+# a config entry; everything else about a connection lives in its data.
+OPTION_KEYS: Final = (
+    CONF_QUERY_TIMEOUT,
+    CONF_ROW_LIMIT,
+    CONF_AUTOCOMMIT,
+    CONF_READONLY_CONNECTION,
+)
+
 # Defaults
 DEFAULT_MYSQL_PORT: Final = 3306
 DEFAULT_MYSQL_TIMEOUT: Final = 10

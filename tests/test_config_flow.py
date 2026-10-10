@@ -27,9 +27,11 @@ from custom_components.mysql_query.const import (
     CONF_USE_TLS,
     DEFAULT_ROW_LIMIT,
     DOMAIN,
+    ENTRY_VERSION,
+    OPTION_KEYS,
 )
 from custom_components.mysql_query.db import TLSUnavailableError
-from tests.conftest import FakePool
+from tests.conftest import FakePool, make_entry
 
 USER_INPUT = {
     CONF_MYSQL_HOST: "localhost",
@@ -94,7 +96,12 @@ async def test_user_flow_success(hass: HomeAssistant) -> None:
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "MySQL: localhost/test_db"
-    assert result["data"][CONF_ROW_LIMIT] == DEFAULT_ROW_LIMIT
+    assert result["options"][CONF_ROW_LIMIT] == DEFAULT_ROW_LIMIT
+    # The connection stays in the data, the query behaviour goes to the options.
+    assert result["version"] == ENTRY_VERSION
+    assert set(result["options"]) == set(OPTION_KEYS)
+    assert not set(result["data"]) & set(OPTION_KEYS)
+    assert result["data"][CONF_MYSQL_HOST] == "localhost"
     # A single throwaway connection to verify the settings; setting up the
     # created entry builds a pool instead.
     assert mock_connect.call_count == 1
@@ -151,88 +158,7 @@ async def test_user_flow_invalid_row_limit_falls_back_to_default(
         )
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["data"][CONF_ROW_LIMIT] == DEFAULT_ROW_LIMIT
-
-
-async def test_options_flow_updates_entry(hass: HomeAssistant) -> None:
-    """The options flow updates the existing config entry data."""
-    entry = MockConfigEntry(
-        domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT}
-    )
-    entry.add_to_hass(hass)
-
-    with patch_driver():
-        result = await hass.config_entries.options.async_init(entry.entry_id)
-        assert result["type"] is FlowResultType.FORM
-
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {**USER_INPUT, CONF_ROW_LIMIT: 500}
-        )
-        await hass.async_block_till_done()
-
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert entry.data[CONF_ROW_LIMIT] == 500
-
-
-async def test_options_flow_saves_the_submitted_settings(hass: HomeAssistant) -> None:
-    """The submitted settings replace the data of the config entry.
-
-    The settings live in entry.data, not in entry.options, so the options
-    flow writes them through async_update_entry and creates an empty options
-    entry. An automation reading the entry keeps seeing them where they were.
-    """
-    entry = MockConfigEntry(
-        domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT}
-    )
-    entry.add_to_hass(hass)
-
-    with patch_driver():
-        result = await hass.config_entries.options.async_init(entry.entry_id)
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"],
-            {**USER_INPUT, CONF_MYSQL_DB: "other_db", CONF_ROW_LIMIT: 500},
-        )
-        await hass.async_block_till_done()
-
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert entry.data[CONF_MYSQL_DB] == "other_db"
-    assert entry.data[CONF_ROW_LIMIT] == 500
-    assert entry.options == {}
-
-
-async def test_options_flow_invalid_row_limit_falls_back_to_default(
-    hass: HomeAssistant,
-) -> None:
-    """A row limit below one is replaced by the default before saving."""
-    entry = MockConfigEntry(domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: 500})
-    entry.add_to_hass(hass)
-
-    with patch_driver():
-        result = await hass.config_entries.options.async_init(entry.entry_id)
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {**USER_INPUT, CONF_ROW_LIMIT: 0}
-        )
-        await hass.async_block_till_done()
-
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert entry.data[CONF_ROW_LIMIT] == DEFAULT_ROW_LIMIT
-
-
-async def test_options_flow_form_is_prefilled_with_current_settings(
-    hass: HomeAssistant,
-) -> None:
-    """The form opens on the settings the entry is running with."""
-    data = {**USER_INPUT, CONF_MYSQL_DB: "current_db", CONF_ROW_LIMIT: 250}
-    entry = MockConfigEntry(domain=DOMAIN, data=data)
-    entry.add_to_hass(hass)
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-
-    assert result["type"] is FlowResultType.FORM
-    defaults = _form_defaults(result)
-    assert defaults[CONF_MYSQL_DB] == "current_db"
-    assert defaults[CONF_MYSQL_HOST] == USER_INPUT[CONF_MYSQL_HOST]
-    assert defaults[CONF_ROW_LIMIT] == 250
+    assert result["options"][CONF_ROW_LIMIT] == DEFAULT_ROW_LIMIT
 
 
 async def test_user_flow_invalid_auth(hass: HomeAssistant) -> None:
@@ -337,75 +263,6 @@ async def test_user_flow_recovers_after_an_error(hass: HomeAssistant) -> None:
     assert result["type"] is FlowResultType.CREATE_ENTRY
 
 
-async def test_options_flow_rejects_settings_it_cannot_connect_with(
-    hass: HomeAssistant,
-) -> None:
-    """Settings that cannot reach the database are not saved.
-
-    Without the check they would be stored anyway, after which the reload
-    fails and the reason is only visible in the log.
-    """
-    data = {**USER_INPUT, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT}
-    entry = MockConfigEntry(domain=DOMAIN, data=data)
-    entry.add_to_hass(hass)
-
-    with patch_driver(side_effect=MySQLError(1045, "Access denied")):
-        result = await hass.config_entries.options.async_init(entry.entry_id)
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {**USER_INPUT, CONF_MYSQL_PASSWORD: "wrong"}
-        )
-
-    assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {"base": "invalid_auth"}
-    # The entry still runs on what it was configured with.
-    assert entry.data == data
-
-
-async def test_options_flow_keeps_the_submitted_values_on_the_form(
-    hass: HomeAssistant,
-) -> None:
-    """A rejected form comes back filled in, not reset to the stored settings."""
-    entry = MockConfigEntry(
-        domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT}
-    )
-    entry.add_to_hass(hass)
-
-    with patch_driver(side_effect=MySQLError(2003, "Connection refused")):
-        result = await hass.config_entries.options.async_init(entry.entry_id)
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {**USER_INPUT, CONF_MYSQL_HOST: "typo.local"}
-        )
-
-    defaults = _form_defaults(result)
-    assert defaults[CONF_MYSQL_HOST] == "typo.local"
-    assert "Connection refused" in result["description_placeholders"]["error"]
-
-
-async def test_options_flow_recovers_after_an_error(hass: HomeAssistant) -> None:
-    """Correcting the settings after a failure still saves them."""
-    entry = MockConfigEntry(
-        domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT}
-    )
-    entry.add_to_hass(hass)
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-
-    with patch_driver(side_effect=MySQLError(1045, "Access denied")):
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {**USER_INPUT, CONF_MYSQL_DB: "other_db"}
-        )
-    assert result["errors"] == {"base": "invalid_auth"}
-
-    with patch_driver():
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {**USER_INPUT, CONF_MYSQL_DB: "other_db"}
-        )
-        await hass.async_block_till_done()
-
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert entry.data[CONF_MYSQL_DB] == "other_db"
-
-
 async def test_user_flow_tls_unavailable(hass: HomeAssistant) -> None:
     """A server that does not encrypt is reported as such, not as a refusal.
 
@@ -464,45 +321,6 @@ async def test_user_flow_defaults_tls_to_off(hass: HomeAssistant) -> None:
     assert result["data"].get(CONF_USE_TLS, False) is False
 
 
-async def test_options_flow_tls_unavailable(hass: HomeAssistant) -> None:
-    """Turning encryption on against a server without TLS is refused."""
-    data = {**USER_INPUT, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT}
-    entry = MockConfigEntry(domain=DOMAIN, data=data)
-    entry.add_to_hass(hass)
-
-    with patch(
-        "custom_components.mysql_query.config_flow.async_test_connection",
-        AsyncMock(side_effect=TLSUnavailableError("not encrypted")),
-    ):
-        result = await hass.config_entries.options.async_init(entry.entry_id)
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {**USER_INPUT, CONF_USE_TLS: True}
-        )
-
-    assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {"base": "tls_unavailable"}
-    # Nothing was stored, so the entry keeps running unencrypted as before.
-    assert entry.data == data
-
-
-async def test_options_flow_turns_tls_on(hass: HomeAssistant) -> None:
-    """A server that does encrypt lets the option be saved."""
-    entry = MockConfigEntry(
-        domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT}
-    )
-    entry.add_to_hass(hass)
-
-    with patch_driver(), patch_tls_ok():
-        result = await hass.config_entries.options.async_init(entry.entry_id)
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {**USER_INPUT, CONF_USE_TLS: True}
-        )
-        await hass.async_block_till_done()
-
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert entry.data[CONF_USE_TLS] is True
-
-
 async def test_user_flow_defaults_readonly_to_off(hass: HomeAssistant) -> None:
     """An existing connection was never read-only, so the default must not be."""
     with patch_driver():
@@ -517,7 +335,7 @@ async def test_user_flow_defaults_readonly_to_off(hass: HomeAssistant) -> None:
         )
         await hass.async_block_till_done()
 
-    assert result["data"].get(CONF_READONLY_CONNECTION, False) is False
+    assert result["options"].get(CONF_READONLY_CONNECTION, False) is False
 
 
 async def test_user_flow_stores_the_readonly_choice(hass: HomeAssistant) -> None:
@@ -531,27 +349,7 @@ async def test_user_flow_stores_the_readonly_choice(hass: HomeAssistant) -> None
         )
         await hass.async_block_till_done()
 
-    assert result["data"][CONF_READONLY_CONNECTION] is True
-
-
-async def test_options_flow_can_mark_a_connection_readonly(
-    hass: HomeAssistant,
-) -> None:
-    """The flag can be turned on afterwards, without re-adding the connection."""
-    entry = MockConfigEntry(
-        domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT}
-    )
-    entry.add_to_hass(hass)
-
-    with patch_driver():
-        result = await hass.config_entries.options.async_init(entry.entry_id)
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {**USER_INPUT, CONF_READONLY_CONNECTION: True}
-        )
-        await hass.async_block_till_done()
-
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert entry.data[CONF_READONLY_CONNECTION] is True
+    assert result["options"][CONF_READONLY_CONNECTION] is True
 
 
 async def _start_reauth(hass: HomeAssistant, entry: MockConfigEntry) -> dict:
@@ -565,9 +363,7 @@ async def test_reauth_flow_updates_the_credentials(hass: HomeAssistant) -> None:
     The flow must not go through the user step: that one aborts on the unique
     id of the entry that is being repaired, and would create a second entry.
     """
-    entry = MockConfigEntry(
-        domain=DOMAIN, data=USER_INPUT, unique_id="localhost_test_db"
-    )
+    entry = make_entry(USER_INPUT, unique_id="localhost_test_db")
     entry.add_to_hass(hass)
 
     result = await _start_reauth(hass, entry)
@@ -602,7 +398,7 @@ async def test_reauth_flow_updates_the_credentials(hass: HomeAssistant) -> None:
 
 async def test_reauth_flow_does_not_prefill_the_password(hass: HomeAssistant) -> None:
     """The stored password never travels back to the browser."""
-    entry = MockConfigEntry(domain=DOMAIN, data=USER_INPUT)
+    entry = make_entry(USER_INPUT)
     entry.add_to_hass(hass)
 
     result = await _start_reauth(hass, entry)
@@ -618,7 +414,7 @@ async def test_reauth_flow_reports_credentials_that_are_still_refused(
     hass: HomeAssistant,
 ) -> None:
     """A wrong password keeps the form open, and the entry untouched."""
-    entry = MockConfigEntry(domain=DOMAIN, data=USER_INPUT)
+    entry = make_entry(USER_INPUT)
     entry.add_to_hass(hass)
     result = await _start_reauth(hass, entry)
 
@@ -641,57 +437,3 @@ async def test_user_form_has_no_password_default(hass: HomeAssistant) -> None:
     )
 
     assert CONF_MYSQL_PASSWORD not in _form_defaults(result)
-
-
-async def test_options_form_never_contains_the_stored_password(
-    hass: HomeAssistant,
-) -> None:
-    """The stored password is not sent to the browser, not even as a default."""
-    entry = MockConfigEntry(domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: 10})
-    entry.add_to_hass(hass)
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-
-    assert CONF_MYSQL_PASSWORD in _form_defaults(result)  # present, and empty
-    assert _form_defaults(result)[CONF_MYSQL_PASSWORD] == ""
-    assert "test_pass" not in repr(result["data_schema"].schema)
-
-
-async def test_options_flow_keeps_the_stored_password_when_left_empty(
-    hass: HomeAssistant,
-) -> None:
-    """An empty password field means keep the current one."""
-    entry = MockConfigEntry(domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: 10})
-    entry.add_to_hass(hass)
-
-    with patch_driver() as mock_connect:
-        result = await hass.config_entries.options.async_init(entry.entry_id)
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"],
-            {**USER_INPUT, CONF_MYSQL_PASSWORD: "", CONF_ROW_LIMIT: 20},
-        )
-        await hass.async_block_till_done()
-
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert entry.data[CONF_MYSQL_PASSWORD] == "test_pass"
-    assert entry.data[CONF_ROW_LIMIT] == 20
-    # The kept password is also the one the connection was tried with.
-    assert mock_connect.await_args.kwargs["password"] == "test_pass"
-
-
-async def test_options_flow_replaces_the_password_when_one_is_given(
-    hass: HomeAssistant,
-) -> None:
-    """A filled-in password field replaces the stored one."""
-    entry = MockConfigEntry(domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: 10})
-    entry.add_to_hass(hass)
-
-    with patch_driver():
-        result = await hass.config_entries.options.async_init(entry.entry_id)
-        await hass.config_entries.options.async_configure(
-            result["flow_id"],
-            {**USER_INPUT, CONF_MYSQL_PASSWORD: "new_pass", CONF_ROW_LIMIT: 10},
-        )
-        await hass.async_block_till_done()
-
-    assert entry.data[CONF_MYSQL_PASSWORD] == "new_pass"

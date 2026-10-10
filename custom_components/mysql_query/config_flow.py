@@ -40,6 +40,8 @@ from .const import (
     DEFAULT_ROW_LIMIT,
     DEFAULT_USE_TLS,
     DOMAIN,
+    ENTRY_VERSION,
+    OPTION_KEYS,
 )
 from .db import (
     ERRNO_ACCESS_DENIED,
@@ -48,6 +50,7 @@ from .db import (
     TLSUnavailableError,
     async_test_connection,
     error_details,
+    merged_config,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -117,12 +120,14 @@ def keep_stored_password(
     return {**user_input, CONF_MYSQL_PASSWORD: stored.get(CONF_MYSQL_PASSWORD, "")}
 
 
-def get_schema(defaults: dict[str, Any], *, editing: bool = False) -> vol.Schema:
-    """Return the schema with provided default values.
+def get_connection_schema(
+    defaults: Mapping[str, Any], *, editing: bool = False
+) -> vol.Schema:
+    """Return the schema of the settings that decide where and how to connect.
 
-    This schema is used for both initial setup and the options flow (re-configuration),
-    ensuring all fields remain editable. Editing makes the password optional,
-    because the stored one is not shown and stays when the field is left empty.
+    These live in the config entry data and are changed through reconfigure.
+    Editing makes the password optional, because the stored one is not shown
+    and stays when the field is left empty.
     """
     password_field = (
         vol.Optional(CONF_MYSQL_PASSWORD, default="")
@@ -148,24 +153,36 @@ def get_schema(defaults: dict[str, Any], *, editing: bool = False) -> vol.Schema
                 default=defaults.get(CONF_MYSQL_TIMEOUT, DEFAULT_MYSQL_TIMEOUT),
             ): int,
             vol.Optional(
-                CONF_QUERY_TIMEOUT,
-                default=defaults.get(CONF_QUERY_TIMEOUT, DEFAULT_QUERY_TIMEOUT),
-            ): int,
-            vol.Optional(
                 CONF_MYSQL_CHARSET, default=defaults.get(CONF_MYSQL_CHARSET, "")
             ): str,
             vol.Optional(
                 CONF_MYSQL_COLLATION, default=defaults.get(CONF_MYSQL_COLLATION, "")
             ): str,
             vol.Optional(
-                CONF_AUTOCOMMIT,
-                default=defaults.get(CONF_AUTOCOMMIT, DEFAULT_MYSQL_AUTOCOMMIT),
+                CONF_USE_TLS, default=defaults.get(CONF_USE_TLS, DEFAULT_USE_TLS)
             ): bool,
+        }
+    )
+
+
+def get_options_schema(defaults: Mapping[str, Any]) -> vol.Schema:
+    """Return the schema of the settings that only decide how queries behave.
+
+    These live in the config entry options. Changing one does not touch the
+    identity of the connection, so it never needs the connection to be tried.
+    """
+    return vol.Schema(
+        {
+            vol.Optional(
+                CONF_QUERY_TIMEOUT,
+                default=defaults.get(CONF_QUERY_TIMEOUT, DEFAULT_QUERY_TIMEOUT),
+            ): int,
             vol.Optional(
                 CONF_ROW_LIMIT, default=defaults.get(CONF_ROW_LIMIT, DEFAULT_ROW_LIMIT)
             ): int,
             vol.Optional(
-                CONF_USE_TLS, default=defaults.get(CONF_USE_TLS, DEFAULT_USE_TLS)
+                CONF_AUTOCOMMIT,
+                default=defaults.get(CONF_AUTOCOMMIT, DEFAULT_MYSQL_AUTOCOMMIT),
             ): bool,
             vol.Optional(
                 CONF_READONLY_CONNECTION,
@@ -177,10 +194,46 @@ def get_schema(defaults: dict[str, Any], *, editing: bool = False) -> vol.Schema
     )
 
 
+def get_schema(defaults: Mapping[str, Any]) -> vol.Schema:
+    """Return the setup schema: the connection and the query behaviour together."""
+    return get_connection_schema(defaults).extend(get_options_schema(defaults).schema)
+
+
+def split_settings(
+    settings: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split settings into what belongs in the entry data and its options."""
+    data = {k: v for k, v in settings.items() if k not in OPTION_KEYS}
+    options = {k: v for k, v in settings.items() if k in OPTION_KEYS}
+    return data, options
+
+
+def _with_valid_row_limit(settings: dict[str, Any]) -> dict[str, Any]:
+    """Fall back to the default limit when the field is empty or invalid."""
+    if not settings.get(CONF_ROW_LIMIT) or settings[CONF_ROW_LIMIT] < 1:
+        return {**settings, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT}
+    return settings
+
+
+def _unique_id(config: Mapping[str, Any]) -> str:
+    """Return the identity of a connection: its server and its database."""
+    return f"{config[CONF_MYSQL_HOST]}_{config[CONF_MYSQL_DB]}"
+
+
+def _title(config: Mapping[str, Any]) -> str:
+    """Return the title a connection gets when the user did not pick one."""
+    return f"MySQL: {config[CONF_MYSQL_HOST]}/{config[CONF_MYSQL_DB]}"
+
+
 class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for mysql_query."""
 
-    VERSION = 1
+    # Version 2 moved the query behaviour settings from the entry data to its
+    # options. A major bump, not a minor one: an older release looks for them
+    # in the data and would silently run with its defaults, for instance
+    # without the read-only switch. Home Assistant refuses to load an entry
+    # that is newer than the integration instead.
+    VERSION = ENTRY_VERSION
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -190,25 +243,63 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         detail = ""
 
         if user_input is not None:
-            # Fall back to the default limit when the field is empty or invalid
-            if not user_input.get(CONF_ROW_LIMIT) or user_input[CONF_ROW_LIMIT] < 1:
-                user_input[CONF_ROW_LIMIT] = DEFAULT_ROW_LIMIT
+            user_input = _with_valid_row_limit(user_input)
 
             error, detail = await _async_validate(user_input)
             if error is None:
-                unique_id = f"{user_input[CONF_MYSQL_HOST]}_{user_input[CONF_MYSQL_DB]}"
-                await self.async_set_unique_id(unique_id)
+                await self.async_set_unique_id(_unique_id(user_input))
                 self._abort_if_unique_id_configured()
 
-                title = (
-                    f"MySQL: {user_input[CONF_MYSQL_HOST]}/{user_input[CONF_MYSQL_DB]}"
+                data, options = split_settings(user_input)
+                return self.async_create_entry(
+                    title=_title(user_input), data=data, options=options
                 )
-                return self.async_create_entry(title=title, data=user_input)
             errors["base"] = error
 
         return self.async_show_form(
             step_id="user",
             data_schema=get_schema(user_input or {}),
+            errors=errors,
+            description_placeholders={"error": detail},
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Change where and how the connection is made."""
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+        detail = ""
+
+        if user_input is not None:
+            user_input = keep_stored_password(user_input, entry.data)
+            candidate = {**entry.data, **user_input}
+
+            # The options take part, because autocommit is a connection argument.
+            error, detail = await _async_validate({**entry.options, **candidate})
+            if error is None:
+                changes: dict[str, Any] = {}
+                new_unique_id = _unique_id(candidate)
+                if new_unique_id != entry.unique_id:
+                    # Only a changed host or database can collide with another
+                    # connection; an unchanged one would match the entry itself.
+                    other = self.hass.config_entries.async_entry_for_domain_unique_id(
+                        DOMAIN, new_unique_id
+                    )
+                    if other is not None and other.entry_id != entry.entry_id:
+                        return self.async_abort(reason="already_configured")
+                    changes["unique_id"] = new_unique_id
+                    # A title the user picked stays; the generated one follows.
+                    if entry.title == _title(entry.data):
+                        changes["title"] = _title(candidate)
+                return self.async_update_reload_and_abort(
+                    entry, data_updates=user_input, **changes
+                )
+            errors["base"] = error
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=get_connection_schema(user_input or entry.data, editing=True),
             errors=errors,
             description_placeholders={"error": detail},
         )
@@ -234,7 +325,7 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         detail = ""
 
         if user_input is not None:
-            error, detail = await _async_validate({**entry.data, **user_input})
+            error, detail = await _async_validate(merged_config(entry) | user_input)
             if error is None:
                 return self.async_update_reload_and_abort(
                     entry, data_updates=user_input
@@ -266,8 +357,12 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return MySQLQueryOptionsFlow()
 
 
-class MySQLQueryOptionsFlow(config_entries.OptionsFlow):
-    """Handle options (re-configuration) for the integration."""
+class MySQLQueryOptionsFlow(config_entries.OptionsFlowWithReload):
+    """Handle the query behaviour settings of a connection.
+
+    Reloads the entry when the options changed, which is what rebuilds the pool
+    with the new autocommit mode and re-reads the other settings.
+    """
 
     # The entry is not stored here: OptionsFlow exposes it as self.config_entry,
     # which resolves it from the handler on every access. Keeping a reference of
@@ -277,31 +372,10 @@ class MySQLQueryOptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manage the settings via the Configure button."""
-        errors: dict[str, str] = {}
-        detail = ""
-
         if user_input is not None:
-            # Fall back to the default limit when the field is empty or invalid
-            if not user_input.get(CONF_ROW_LIMIT) or user_input[CONF_ROW_LIMIT] < 1:
-                user_input[CONF_ROW_LIMIT] = DEFAULT_ROW_LIMIT
-
-            # Verified before saving: settings that cannot reach the database
-            # would otherwise be stored, after which the reload fails and the
-            # reason is only visible in the log.
-            user_input = keep_stored_password(user_input, self.config_entry.data)
-            error, detail = await _async_validate(user_input)
-            if error is None:
-                self.hass.config_entries.async_update_entry(
-                    self.config_entry, data=user_input
-                )
-                return self.async_create_entry(title="", data={})
-            errors["base"] = error
-
-        current_settings = user_input or dict(self.config_entry.data)
+            return self.async_create_entry(data=_with_valid_row_limit(user_input))
 
         return self.async_show_form(
             step_id="init",
-            data_schema=get_schema(current_settings, editing=True),
-            errors=errors,
-            description_placeholders={"error": detail},
+            data_schema=get_options_schema(self.config_entry.options),
         )

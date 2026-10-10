@@ -6,7 +6,6 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.json import json_dumps
@@ -23,7 +22,13 @@ from custom_components.mysql_query.const import (
     DOMAIN,
     SERVICE_QUERY,
 )
-from tests.conftest import FakeConnection, FakeCursor, FakePool, patch_create_pool
+from tests.conftest import (
+    FakeConnection,
+    FakeCursor,
+    FakePool,
+    make_entry,
+    patch_create_pool,
+)
 
 ENTRY_DATA = {
     CONF_MYSQL_HOST: "localhost",
@@ -131,7 +136,7 @@ async def test_execute_service_response_is_json_serializable(
         rowcount=1,
     )
 
-    entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
+    entry = make_entry(ENTRY_DATA)
     entry.add_to_hass(hass)
     with patch_create_pool(FakePool(FakeConnection(cursor))):
         assert await hass.config_entries.async_setup(entry.entry_id)

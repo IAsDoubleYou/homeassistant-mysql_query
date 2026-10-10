@@ -25,6 +25,25 @@
                     "mysql_readonly": "Refuses the Execute action on this connection, whatever the statement says. Use it for a connection that only feeds dashboards or reports, so a write aimed at the wrong connection cannot land here. Off by default."
                 }
             },
+            "reconfigure": {
+                "title": "Change the connection",
+                "description": "Change where and how the connection is made. Query behaviour, such as the row limit and the read-only switch, is under Configure.",
+                "data": {
+                    "mysql_host": "Host",
+                    "mysql_port": "Port",
+                    "mysql_username": "Username",
+                    "mysql_password": "Password",
+                    "mysql_db": "Database",
+                    "mysql_timeout": "Connect Timeout (seconds)",
+                    "mysql_charset": "Charset",
+                    "mysql_collation": "Collation",
+                    "mysql_use_tls": "Encrypt the connection (TLS)"
+                },
+                "data_description": {
+                    "mysql_password": "Leave empty to keep the current password. It is not shown here.",
+                    "mysql_use_tls": "Encrypts the traffic to the database. The server must have TLS configured; the connection fails if it does not. The server certificate is not verified, so this protects against reading along on the network, not against a server impersonating yours. Off by default so existing setups keep working."
+                }
+            },
             "reauth_confirm": {
                 "title": "Sign in again",
                 "description": "The database refused the username or password of {connection}. Enter the credentials to use from now on.",
@@ -44,42 +63,25 @@
         "abort": {
             "already_configured": "This connection is already configured.",
             "cannot_connect": "Failed to connect during import.",
-            "reauth_successful": "The credentials were updated."
+            "reauth_successful": "The credentials were updated.",
+            "reconfigure_successful": "The connection was updated."
         }
     },
     "options": {
         "step": {
             "init": {
-                "title": "Settings",
+                "title": "Query behaviour",
                 "data": {
-                    "mysql_host": "Host",
-                    "mysql_port": "Port",
-                    "mysql_username": "Username",
-                    "mysql_password": "Password",
-                    "mysql_db": "Database",
-                    "mysql_timeout": "Connect Timeout (seconds)",
                     "mysql_query_timeout": "Query Timeout (seconds)",
-                    "mysql_charset": "Charset",
-                    "mysql_collation": "Collation",
-                    "mysql_autocommit": "Autocommit",
                     "mysql_row_limit": "Row Limit (Safety Cap)",
-                    "mysql_use_tls": "Encrypt the connection (TLS)",
+                    "mysql_autocommit": "Autocommit",
                     "mysql_readonly": "Read-only connection"
                 },
                 "data_description": {
-                    "mysql_password": "Leave empty to keep the current password. It is not shown here.",
                     "mysql_query_timeout": "Bounds a whole call: borrowing a pooled connection, reconnecting it if needed, and running the statement. A statement still running when this elapses is treated as failed and its connection is dropped instead of reused.",
-                    "mysql_use_tls": "Encrypts the traffic to the database. The server must have TLS configured; the connection fails if it does not. The server certificate is not verified, so this protects against reading along on the network, not against a server impersonating yours. Off by default so existing setups keep working.",
                     "mysql_readonly": "Refuses the Execute action on this connection, whatever the statement says. Use it for a connection that only feeds dashboards or reports, so a write aimed at the wrong connection cannot land here. Off by default."
                 }
             }
-        },
-        "error": {
-            "cannot_connect": "Failed to connect to the server. Check the host, the port and your firewall. Details: {error}",
-            "invalid_auth": "The server refused the username or password.",
-            "unknown_database": "The database does not exist, or this user has no access to it.",
-            "unknown": "Unexpected error while connecting: {error}",
-            "tls_unavailable": "The server accepted the connection but did not encrypt it. Configure TLS on the database, or turn the encryption option off."
         }
     },
     "exceptions": {

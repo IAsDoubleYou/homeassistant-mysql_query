@@ -32,7 +32,13 @@ from custom_components.mysql_query.const import (
     SERVICE_QUERY,
 )
 from custom_components.mysql_query.db import TLSUnavailableError
-from tests.conftest import FakeConnection, FakeCursor, FakePool, patch_create_pool
+from tests.conftest import (
+    FakeConnection,
+    FakeCursor,
+    FakePool,
+    make_entry,
+    patch_create_pool,
+)
 
 ENTRY_DATA = {
     CONF_MYSQL_HOST: "localhost",
@@ -58,7 +64,7 @@ async def _setup_entry(
     hass: HomeAssistant, pool: FakePool, data: dict | None = None
 ) -> MockConfigEntry:
     """Add and set up a config entry backed by the given fake pool."""
-    entry = MockConfigEntry(domain=DOMAIN, data=data or ENTRY_DATA)
+    entry = make_entry(data or ENTRY_DATA)
     entry.add_to_hass(hass)
     with patch_create_pool(pool):
         assert await hass.config_entries.async_setup(entry.entry_id)
@@ -69,7 +75,7 @@ async def _setup_entry(
 
 async def _setup_failing(hass: HomeAssistant, error: Exception) -> MockConfigEntry:
     """Set up an entry whose pool cannot be created because of ``error``."""
-    entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
+    entry = make_entry(ENTRY_DATA)
     entry.add_to_hass(hass)
 
     with patch("aiomysql.create_pool", side_effect=error):
@@ -497,7 +503,7 @@ async def test_setup_fails_when_tls_is_not_established(hass: HomeAssistant) -> N
     entry configured for encryption would keep running unencrypted.
     """
     pool = FakePool(FakeConnection(FakeCursor()))
-    entry = MockConfigEntry(domain=DOMAIN, data={**ENTRY_DATA, CONF_USE_TLS: True})
+    entry = make_entry({**ENTRY_DATA, CONF_USE_TLS: True})
     entry.add_to_hass(hass)
 
     with (
@@ -523,7 +529,7 @@ async def test_setup_retries_when_the_tls_check_loses_the_connection(
 ) -> None:
     """A connection that drops during the TLS check is a connection problem."""
     pool = FakePool(FakeConnection(FakeCursor()))
-    entry = MockConfigEntry(domain=DOMAIN, data={**ENTRY_DATA, CONF_USE_TLS: True})
+    entry = make_entry({**ENTRY_DATA, CONF_USE_TLS: True})
     entry.add_to_hass(hass)
 
     with (
@@ -544,7 +550,7 @@ async def test_setup_retries_when_the_tls_check_loses_the_connection(
 async def test_setup_verifies_tls_on_a_pooled_connection(hass: HomeAssistant) -> None:
     """The check borrows from the pool and returns the connection."""
     pool = FakePool(FakeConnection(FakeCursor()))
-    entry = MockConfigEntry(domain=DOMAIN, data={**ENTRY_DATA, CONF_USE_TLS: True})
+    entry = make_entry({**ENTRY_DATA, CONF_USE_TLS: True})
     entry.add_to_hass(hass)
 
     verify = AsyncMock()
@@ -564,7 +570,7 @@ async def test_setup_verifies_tls_on_a_pooled_connection(hass: HomeAssistant) ->
 async def test_setup_skips_the_tls_check_when_tls_is_off(hass: HomeAssistant) -> None:
     """Without the option the extra round trip is never made."""
     pool = FakePool(FakeConnection(FakeCursor()))
-    entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
+    entry = make_entry(ENTRY_DATA)
     entry.add_to_hass(hass)
 
     verify = AsyncMock()

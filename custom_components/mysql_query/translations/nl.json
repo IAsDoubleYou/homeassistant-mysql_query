@@ -25,6 +25,25 @@
                     "mysql_readonly": "Weigert de Uitvoeren-actie op deze verbinding, wat het statement ook zegt. Gebruik dit voor een verbinding die alleen dashboards of rapportages voedt, zodat een schrijfactie die op de verkeerde verbinding terechtkomt hier niet landt. Standaard uit."
                 }
             },
+            "reconfigure": {
+                "title": "De verbinding wijzigen",
+                "description": "Wijzig waar en hoe de verbinding wordt gemaakt. Het gedrag van queries, zoals de rijlimiet en de alleen-lezen-schakelaar, staat onder Configureren.",
+                "data": {
+                    "mysql_host": "Host",
+                    "mysql_port": "Poort",
+                    "mysql_username": "Gebruikersnaam",
+                    "mysql_password": "Wachtwoord",
+                    "mysql_db": "Database",
+                    "mysql_timeout": "Verbindingstime-out (seconden)",
+                    "mysql_charset": "Tekenset",
+                    "mysql_collation": "Collatie",
+                    "mysql_use_tls": "Verbinding versleutelen (TLS)"
+                },
+                "data_description": {
+                    "mysql_password": "Laat leeg om het huidige wachtwoord te houden. Het wordt hier niet getoond.",
+                    "mysql_use_tls": "Versleutelt het verkeer naar de database. De server moet TLS geconfigureerd hebben; zonder TLS mislukt de verbinding. Het servercertificaat wordt niet gecontroleerd, dus dit beschermt tegen meelezen op het netwerk, niet tegen een server die zich voordoet als de jouwe. Standaard uit, zodat bestaande installaties blijven werken."
+                }
+            },
             "reauth_confirm": {
                 "title": "Opnieuw inloggen",
                 "description": "De database weigerde de gebruikersnaam of het wachtwoord van {connection}. Vul de gegevens in die je voortaan wilt gebruiken.",
@@ -44,42 +63,25 @@
         "abort": {
             "already_configured": "Deze verbinding is al geconfigureerd.",
             "cannot_connect": "Verbinden tijdens het importeren is mislukt.",
-            "reauth_successful": "De inloggegevens zijn bijgewerkt."
+            "reauth_successful": "De inloggegevens zijn bijgewerkt.",
+            "reconfigure_successful": "De verbinding is bijgewerkt."
         }
     },
     "options": {
         "step": {
             "init": {
-                "title": "Instellingen",
+                "title": "Gedrag van queries",
                 "data": {
-                    "mysql_host": "Host",
-                    "mysql_port": "Poort",
-                    "mysql_username": "Gebruikersnaam",
-                    "mysql_password": "Wachtwoord",
-                    "mysql_db": "Database",
-                    "mysql_timeout": "Verbindingstime-out (seconden)",
                     "mysql_query_timeout": "Query-time-out (seconden)",
-                    "mysql_charset": "Tekenset",
-                    "mysql_collation": "Collatie",
-                    "mysql_autocommit": "Autocommit",
                     "mysql_row_limit": "Rijlimiet (veiligheidsgrens)",
-                    "mysql_use_tls": "Verbinding versleutelen (TLS)",
+                    "mysql_autocommit": "Autocommit",
                     "mysql_readonly": "Alleen-lezen verbinding"
                 },
                 "data_description": {
-                    "mysql_password": "Laat leeg om het huidige wachtwoord te houden. Het wordt hier niet getoond.",
                     "mysql_query_timeout": "Begrenst een hele aanroep: het lenen van een pool-connectie, deze zo nodig opnieuw verbinden, en het statement zelf uitvoeren. Een statement dat dan nog loopt wordt als mislukt behandeld en de connectie wordt weggegooid in plaats van hergebruikt.",
-                    "mysql_use_tls": "Versleutelt het verkeer naar de database. De server moet TLS geconfigureerd hebben; zonder TLS mislukt de verbinding. Het servercertificaat wordt niet gecontroleerd, dus dit beschermt tegen meelezen op het netwerk, niet tegen een server die zich voordoet als de jouwe. Standaard uit, zodat bestaande installaties blijven werken.",
                     "mysql_readonly": "Weigert de Uitvoeren-actie op deze verbinding, wat het statement ook zegt. Gebruik dit voor een verbinding die alleen dashboards of rapportages voedt, zodat een schrijfactie die op de verkeerde verbinding terechtkomt hier niet landt. Standaard uit."
                 }
             }
-        },
-        "error": {
-            "cannot_connect": "Verbinden met de server is mislukt. Controleer de host, de poort en je firewall. Details: {error}",
-            "invalid_auth": "De server weigerde de gebruikersnaam of het wachtwoord.",
-            "unknown_database": "De database bestaat niet, of deze gebruiker heeft er geen toegang toe.",
-            "unknown": "Onverwachte fout bij het verbinden: {error}",
-            "tls_unavailable": "De server accepteerde de verbinding maar versleutelde die niet. Configureer TLS op de database, of zet de versleutelingsoptie uit."
         }
     },
     "exceptions": {

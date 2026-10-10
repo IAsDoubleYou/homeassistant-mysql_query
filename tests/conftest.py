@@ -9,6 +9,9 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.mysql_query.const import DOMAIN, ENTRY_VERSION, OPTION_KEYS
 
 # On Linux/macOS (e.g. CI) this file isn't needed: the stdlib "fcntl" module
 # that homeassistant.runner imports exists natively there. On Windows it
@@ -191,3 +194,16 @@ def patch_create_pool(*pools: FakePool) -> Any:
     if len(pools) == 1:
         return patch("aiomysql.create_pool", AsyncMock(return_value=pools[0]))
     return patch("aiomysql.create_pool", AsyncMock(side_effect=list(pools)))
+
+
+def make_entry(data: dict[str, Any] | None = None, **kwargs: Any) -> MockConfigEntry:
+    """Return a config entry the way the current release stores it.
+
+    Takes all settings in one dict, like the setup form does, and files the
+    query behaviour settings under the options and the rest under the data.
+    """
+    settings = dict(data or {})
+    options = {key: settings.pop(key) for key in OPTION_KEYS if key in settings}
+    return MockConfigEntry(
+        domain=DOMAIN, version=ENTRY_VERSION, data=settings, options=options, **kwargs
+    )

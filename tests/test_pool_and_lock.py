@@ -34,7 +34,13 @@ from custom_components.mysql_query.const import (
     SERVICE_EXECUTE,
     SERVICE_QUERY,
 )
-from tests.conftest import FakeConnection, FakeCursor, FakePool, patch_create_pool
+from tests.conftest import (
+    FakeConnection,
+    FakeCursor,
+    FakePool,
+    make_entry,
+    patch_create_pool,
+)
 
 ENTRY_DATA = {
     CONF_MYSQL_HOST: "localhost",
@@ -56,7 +62,7 @@ async def _setup_entry(
     hass: HomeAssistant, pool: FakePool, data: dict | None = None
 ) -> MockConfigEntry:
     """Add and set up a config entry backed by the given fake pool."""
-    entry = MockConfigEntry(domain=DOMAIN, data=data or ENTRY_DATA)
+    entry = make_entry(data or ENTRY_DATA)
     entry.add_to_hass(hass)
     with patch_create_pool(pool):
         assert await hass.config_entries.async_setup(entry.entry_id)
@@ -81,14 +87,13 @@ async def test_pool_is_created_with_the_configured_settings(
     hass: HomeAssistant,
 ) -> None:
     """Setup builds one bounded, recycling pool from the entry settings."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
+    entry = make_entry(
+        {
             **ENTRY_DATA,
             CONF_MYSQL_CHARSET: "utf8mb4",
             CONF_MYSQL_COLLATION: "utf8mb4_unicode_ci",
             CONF_AUTOCOMMIT: False,
-        },
+        }
     )
     entry.add_to_hass(hass)
 
@@ -118,7 +123,7 @@ async def test_pool_connection_is_reused_across_calls(hass: HomeAssistant) -> No
     pool = FakePool(connection)
 
     create_pool = AsyncMock(return_value=pool)
-    entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
+    entry = make_entry(ENTRY_DATA)
     entry.add_to_hass(hass)
     with patch("aiomysql.create_pool", create_pool):
         assert await hass.config_entries.async_setup(entry.entry_id)
