@@ -418,14 +418,45 @@ async def _async_restore_database(conn: aiomysql.Connection, database: str) -> N
         conn.close()
 
 
-async def _async_run_statement(
+async def _async_begin_read_only(conn: aiomysql.Connection) -> None:
+    """Open a transaction in which the server refuses every change."""
+    async with conn.cursor() as cursor:
+        await cursor.execute("START TRANSACTION READ ONLY")
+
+
+async def _async_end_read_only(conn: aiomysql.Connection) -> None:
+    """Close the read-only transaction without keeping anything from it.
+
+    A connection that cannot be rolled back is dropped, so it never goes back
+    to the pool with a transaction still open on it.
+    """
+    try:
+        await conn.rollback()
+    except aiomysql.Error, OSError:
+        _LOGGER.debug("Could not roll back the read-only transaction; dropping")
+        conn.close()
+
+
+async def _async_run_statement(  # noqa: PLR0913
     instance: MySQLInstance,
     query: str,
     db4query: str | None,
     row_limit: int,
     values: Sequence[Any] | None = None,
+    *,
+    read_only: bool = False,
 ) -> QueryResult:
-    """Run a statement on a connection borrowed from the pool."""
+    """Run a statement on a connection borrowed from the pool.
+
+    With ``read_only`` the statement runs inside START TRANSACTION READ ONLY,
+    which the server enforces: any change to a table fails with error 1792,
+    whatever the statement looks like. That is the backstop behind the
+    classifier in sql.py, which only reads the text and cannot see what a
+    stored function does. The transaction is always rolled back, so nothing
+    stays open on the connection that goes back to the pool. (aiomysql drops
+    a connection that is returned with a transaction open, which with
+    autocommit off used to happen after every SELECT.)
+    """
     default_db = instance.config.get(CONF_MYSQL_DB)
     timeout = int(instance.config.get(CONF_QUERY_TIMEOUT, DEFAULT_QUERY_TIMEOUT))
     # A one-off query against another database reuses the pooled connection and
@@ -450,12 +481,26 @@ async def _async_run_statement(
 
             if switch_db:
                 await conn.select_db(db4query)
+            # Set when the timeout cancels the call. The connection is dropped
+            # then, and the server discards what is open on it; awaiting
+            # anything more on a connection that may not answer would hang
+            # past the very limit that just elapsed.
+            cancelled = False
             try:
-                return await _async_execute_statement(
-                    conn, query, row_limit, db4query or default_db, values
-                )
+                if read_only:
+                    await _async_begin_read_only(conn)
+                try:
+                    return await _async_execute_statement(
+                        conn, query, row_limit, db4query or default_db, values
+                    )
+                except asyncio.CancelledError:
+                    cancelled = True
+                    raise
+                finally:
+                    if read_only and not cancelled:
+                        await _async_end_read_only(conn)
             finally:
-                if switch_db:
+                if switch_db and not cancelled:
                     await _async_restore_database(conn, str(default_db))
     except TimeoutError:
         timed_out = True
@@ -670,7 +715,14 @@ async def _async_handle_service(
         async with instance.lock:
             start_time = time.perf_counter()
             db_output = await _async_run_statement(
-                instance, _query, _db4query, row_limit, rendered_values
+                instance,
+                _query,
+                _db4query,
+                row_limit,
+                rendered_values,
+                # Only reading belongs to query, so the server is told to hold
+                # it to that. Execute has to be able to write.
+                read_only=call.service == SERVICE_QUERY,
             )
             execution_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
 

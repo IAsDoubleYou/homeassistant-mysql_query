@@ -79,12 +79,16 @@ class FakeCursor:
         # The values bound to each statement, so a test can assert both what
         # was sent and that nothing was bound at all (None).
         self.executed_args: list[Any] = []
+        # Shared with the connection that hands this cursor out.
+        self.events: list[str] | None = None
         self.closed = False
 
     async def execute(self, query: str, args: Any = None) -> None:
         """Record the statement and raise the configured error, if any."""
         self.executed.append(query)
         self.executed_args.append(args)
+        if self.events is not None:
+            self.events.append(query)
         if self.on_execute is not None:
             await self.on_execute(query)
         if self.error is not None:
@@ -112,6 +116,31 @@ class FakeCursor:
         return False
 
 
+class FakeControlCursor:
+    """Stand-in for the plain cursor used for statements that are not queries.
+
+    Kept apart from the cursor that carries the query, so a test can assert
+    exactly which statements the query itself sent.
+    """
+
+    def __init__(self, connection: FakeConnection) -> None:
+        """Remember the connection whose log it writes to."""
+        self.connection = connection
+
+    async def execute(self, query: str, args: Any = None) -> None:
+        """Record the control statement."""
+        self.connection.control_statements.append(query)
+        self.connection.events.append(query)
+
+    async def __aenter__(self) -> FakeControlCursor:
+        """Enter the cursor context."""
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> bool:
+        """Leave the cursor context."""
+        return False
+
+
 class FakeConnection:
     """Stand-in for a pooled aiomysql connection."""
 
@@ -130,12 +159,29 @@ class FakeConnection:
         self.select_db_errors = select_db_errors or {}
         self.pings = 0
         self.commits = 0
+        self.rollbacks = 0
+        self.rollback_error: Exception | None = None
         self.selected_dbs: list[str] = []
         self.closed = False
+        # Statements sent outside the query itself, and everything that
+        # happened on the connection in order: database switches, control
+        # statements, the query, the rollback.
+        self.control_statements: list[str] = []
+        self.events: list[str] = []
+        self.cursor_obj.events = self.events
 
-    def cursor(self, *cursor_classes: type) -> FakeCursor:
-        """Return the prepared cursor; usable as an async context manager."""
+    def cursor(self, *cursor_classes: type) -> FakeCursor | FakeControlCursor:
+        """Return the cursor for the query, or a control cursor for a plain one."""
+        if not cursor_classes:
+            return FakeControlCursor(self)
         return self.cursor_obj
+
+    async def rollback(self) -> None:
+        """Count rollbacks, or fail when the test asked for it."""
+        self.rollbacks += 1
+        self.events.append("ROLLBACK")
+        if self.rollback_error is not None:
+            raise self.rollback_error
 
     def get_autocommit(self) -> bool:
         """Report the autocommit mode the connection was created with."""
@@ -152,6 +198,7 @@ class FakeConnection:
     async def select_db(self, database: str) -> None:
         """Record a database switch, or fail when the test asked for it."""
         self.selected_dbs.append(database)
+        self.events.append(f"USE {database}")
         if (error := self.select_db_errors.get(database)) is not None:
             raise error
 
