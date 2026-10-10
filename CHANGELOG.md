@@ -5,11 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.3.0] - 2026-10-05
+## [4.0.0] - 2026-10-10
+
+**Breaking.** This release brings the integration in line with the latest Home Assistant and HACS quality and security requirements, in preparation for its inclusion in the default HACS repository. Several things behave differently; the Migration section below says what to do about each. Version 3.3.0 was never released and is part of this one.
+
+### Breaking
+
+- **`mysql_query.execute` is for administrators.** A call made on behalf of a logged-in user who is not an administrator is refused. Calls that carry no user, such as an automation started by a trigger, are not affected. `mysql_query.query` stays open to every user. Until now any logged-in user could run arbitrary SQL writes through the API, with the credentials stored in the connection.
+- **YAML configuration is gone.** A `mysql_query:` section in `configuration.yaml` used to be imported once, while Home Assistant reported the same section as unsupported. It is not imported any more; Home Assistant reports it and nothing else happens.
+- **Connection settings and query behaviour are stored apart.** Host, port, credentials, database, connect timeout, charset, collation and TLS stay in the entry data and are changed with the new **Reconfigure** action. The query timeout, row limit, autocommit and read-only switch moved to the entry options and are changed under **Configure**. Existing connections are migrated automatically (config entry version 1 to 2).
+- **Going back to 3.x is not possible without re-creating the connection.** The entry version is a major one on purpose: 3.x would look for the moved settings in the entry data and silently run with its defaults, for instance without the read-only switch. Home Assistant refuses to load an entry that is newer than the integration instead.
+- **The minimum Home Assistant version is now 2026.3.0**, declared in `hacs.json` (previously 2025.3.0). Home Assistant moved to Python 3.14 with that release and the code uses Python 3.14 syntax; the brand images in `brand/` are also only read from the integration folder from that release on. HACS refuses to download this version on an older Home Assistant, which stays on the previous release.
+- **A row limit, a connect timeout or a query timeout below 1, and a port outside 1-65535, are rejected by the forms.** A row limit below 1 used to be replaced by the default without a word.
+
+### Added
+
+- **Reconfigure** for the connection settings. The new settings are tried before they are saved, the unique id and the generated title follow a changed host or database, a collision with another connection is refused, and the connection reloads.
+- **A sign-in flow when the credentials are refused.** Home Assistant starts it by itself when the database rejects the username or password; it updates the existing connection.
+- **The connection is retried when the database cannot be reached while Home Assistant starts.** Setup used to log an error and stay failed until the entry was reloaded by hand. Credentials that are refused, a database that does not exist or is off limits, and a TLS connection that was asked for but not offered each fail with their own message instead of being retried.
 
 ### Changed
 
-- **Minimum Home Assistant version is now 2026.3.0**, declared in `hacs.json` (previously 2025.3.0). Home Assistant moved to Python 3.14 with that release; the code base now targets Python 3.14 and CI runs on it. HACS refuses to download this version on an older Home Assistant, which stays on the previous release.
+- **The password field is masked** in the setup, reconfigure and sign-in forms. The edit form used to be prefilled with the stored password, which put it in the form definition and on screen. It is never prefilled now: leave the field empty to keep the current password.
+- **`mysql_query.execute` can be called without a `response_variable`.** Its response is optional now; `query` still requires one.
+- **The services are registered once, with the integration**, and stay listed while no connection is loaded. A call then says why it cannot run (no connection loaded, or the chosen one is not) instead of the action having disappeared.
+- **Errors are raised as the kind Home Assistant expects.** A call the caller got wrong raises `ServiceValidationError`, whatever `raise_on_error` says: no usable connection, an empty statement, several statements, the wrong service for the statement, a read-only connection. So does a template in `values` that does not render, unless `raise_on_error` is false. A failure of the database, a timeout and anything unexpected raise `HomeAssistantError`. All carry a translation key. `raise_on_error` keeps its meaning and defaults.
+- **A failure that is raised is no longer also logged as an error.** One that is only reported in the response still is.
+- **`iot_class` is `local_polling`** instead of `local_push`: nothing is pushed, a query runs when an action asks for it.
+- **The TLS context comes from Home Assistant.** `ssl.create_default_context()` loads the CA bundle from disk, and it was called on the event loop. Home Assistant's cached context is used instead. The server certificate is still not verified.
+- `services.yaml` and the strings now carry the same names and descriptions. The `db4query` field was called "Database Override" in one and "Database for query" in the other; it is "Database override" in both.
+- The raw brand artwork moved from the repository root to `scripts/brand_sources/`, and `scripts/build_brands.py` reads it from there.
+- The README describes all of this, including who may call `execute` and how to let a non-administrator cause a write through an automation.
+
+### Removed
+
+- The unused `cannot_connect` abort reason from the translations.
+
+### Migration
+
+- **Using `execute` from a dashboard as a user who is not an administrator:** the call is refused now. Put the write in an automation and let the dashboard trigger that, for instance through an `input_button` helper. The README has the details.
+- **Still have a `mysql_query:` section in `configuration.yaml`:** add the connection in the UI and remove the section. Connections that were imported earlier are config entries already and are not affected.
+- **Changing a setting:** host, port, credentials, database, charset, collation and TLS are under **Reconfigure** (the menu of the connection); the query timeout, row limit, autocommit and read-only switch are under **Configure**.
+- **Running Home Assistant older than 2026.3.0:** stay on 3.2.0. HACS will not install this version there.
 
 ## [3.2.0] - 2026-09-26
 

@@ -10,7 +10,7 @@
 
 A Home Assistant custom component that talks to a MySQL or MariaDB database through two actions: ```mysql_query.query``` reads with a SELECT and hands you the rows, and ```mysql_query.execute``` writes with an INSERT, UPDATE, DELETE or DDL statement and hands you what it changed. Both can return an iterable data structure you can use straight from a template.
 
-> ⚠️ **Upgrading from an earlier version?** v3.0.0 changes what ```query``` and ```execute``` each accept — see [Upgrading to 3.0.0](#upgrading-to-300) before you update.
+> ⚠️ **Upgrading from an earlier version?** v4.0.0 changes who may call ```execute```, drops YAML configuration, moves some settings and needs Home Assistant 2026.3.0 — see [Upgrading to 4.0.0](#upgrading-to-400) before you update. v3.0.0 changed what ```query``` and ```execute``` each accept — see [Upgrading to 3.0.0](#upgrading-to-300).
 
 ## Key Features
 
@@ -565,6 +565,20 @@ Some things do not follow the flag, because they are refusals to run rather than
 | A user who is not an administrator calls ```execute``` | Refused, see [Who may call what](#who-may-call-what) |
 
 The services stay listed in Home Assistant while no connection is loaded, so a call can tell you why it cannot run instead of the action having disappeared.
+
+---
+
+## Upgrading to 4.0.0
+
+**These changes were made in preparation for including the integration in the default HACS repository, to fully meet the latest Home Assistant and HACS quality and security requirements.** Most of it is invisible, but five things behave differently:
+
+1. **Home Assistant 2026.3.0 or newer is required.** Home Assistant moved to Python 3.14 with that release, and this version uses it. On an older Home Assistant HACS will not install 4.0.0; stay on 3.2.0 there.
+2. **YAML configuration is no longer supported.** A ```mysql_query:``` section in ```configuration.yaml``` is not imported any more; Home Assistant reports it as unsupported and nothing else happens. Add the connection in the UI and remove the section. Connections that were imported earlier are normal connections already and keep working.
+3. **```execute``` is for administrators.** A call made on behalf of a user who is not an administrator is refused. Automations are not affected. If a dashboard lets such a user cause a write, move the write into an automation and let the dashboard trigger it; see [Who may call what](#who-may-call-what). ```query``` is not restricted.
+4. **Some settings moved.** Changing where a connection connects (host, port, credentials, database, charset, collation, TLS) is now **Reconfigure**, in the menu of the connection. The query timeout, the row limit, autocommit and the read-only switch stay under **Configure**. Your connections are converted automatically the first time 4.0.0 starts.
+5. **You cannot go back to 3.x without re-creating the connections.** The conversion in (4) is one way, and 3.x would not find its settings where it looks for them. Home Assistant refuses to load a converted connection in 3.x instead of running it with the wrong settings; remove it and add it again to downgrade. Make a backup before you update if you may want to go back.
+
+Smaller things: ```execute``` no longer needs a ```response_variable```; the actions stay listed while no connection is loaded and then say why a call cannot run; a connection whose database is not up yet when Home Assistant starts is retried by itself; refused credentials start a sign-in form instead of leaving the connection failed; and the password field is masked and never shown again.
 
 ---
 
