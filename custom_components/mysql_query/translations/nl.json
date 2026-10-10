@@ -24,6 +24,14 @@
                     "mysql_use_tls": "Versleutelt het verkeer naar de database. De server moet TLS geconfigureerd hebben; zonder TLS mislukt de verbinding. Het servercertificaat wordt niet gecontroleerd, dus dit beschermt tegen meelezen op het netwerk, niet tegen een server die zich voordoet als de jouwe. Standaard uit, zodat bestaande installaties blijven werken.",
                     "mysql_readonly": "Weigert de Uitvoeren-actie op deze verbinding, wat het statement ook zegt. Gebruik dit voor een verbinding die alleen dashboards of rapportages voedt, zodat een schrijfactie die op de verkeerde verbinding terechtkomt hier niet landt. Standaard uit."
                 }
+            },
+            "reauth_confirm": {
+                "title": "Opnieuw inloggen",
+                "description": "De database weigerde de gebruikersnaam of het wachtwoord van {connection}. Vul de gegevens in die je voortaan wilt gebruiken.",
+                "data": {
+                    "mysql_username": "Gebruikersnaam",
+                    "mysql_password": "Wachtwoord"
+                }
             }
         },
         "error": {
@@ -35,7 +43,8 @@
         },
         "abort": {
             "already_configured": "Deze verbinding is al geconfigureerd.",
-            "cannot_connect": "Verbinden tijdens het importeren is mislukt."
+            "cannot_connect": "Verbinden tijdens het importeren is mislukt.",
+            "reauth_successful": "De inloggegevens zijn bijgewerkt."
         }
     },
     "options": {
@@ -87,6 +96,18 @@
         },
         "read_via_execute": {
             "message": "mysql_query.execute voert alleen statements uit die iets wijzigen. Roep mysql_query.query aan voor een statement dat alleen leest; die rapporteert dezelfde metadata."
+        },
+        "invalid_auth": {
+            "message": "De database weigerde de gebruikersnaam of het wachtwoord van \"{connection}\". Vul nieuwe inloggegevens in om door te gaan."
+        },
+        "unknown_database": {
+            "message": "De database van \"{connection}\" bestaat niet, of de gebruiker heeft er geen toegang toe. Een nieuw wachtwoord lost dit niet op: controleer de databasenaam en de rechten van de gebruiker."
+        },
+        "cannot_connect": {
+            "message": "Verbinden met \"{connection}\" is mislukt: {error}. Home Assistant probeert het zelf opnieuw."
+        },
+        "tls_unavailable": {
+            "message": "\"{connection}\" staat ingesteld op TLS, maar de server accepteerde de verbinding zonder te versleutelen. Configureer TLS op de database, of zet de versleutelingsoptie uit."
         }
     },
     "services": {

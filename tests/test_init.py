@@ -66,16 +66,74 @@ async def _setup_entry(
     return entry
 
 
-async def test_setup_entry_connect_failure(hass: HomeAssistant) -> None:
-    """A failed connection aborts setup and returns False."""
+async def _setup_failing(hass: HomeAssistant, error: Exception) -> MockConfigEntry:
+    """Set up an entry whose pool cannot be created because of ``error``."""
     entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
     entry.add_to_hass(hass)
 
-    with patch("aiomysql.create_pool", side_effect=MySQLError(1045, "Access denied")):
-        assert not await hass.config_entries.async_setup(entry.entry_id)
+    with patch("aiomysql.create_pool", side_effect=error):
+        await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
+    return entry
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        MySQLError(2003, "Can't connect to MySQL server"),
+        ConnectionRefusedError("refused"),
+        TimeoutError(),
+    ],
+)
+async def test_setup_retries_when_the_server_cannot_be_reached(
+    hass: HomeAssistant, error: Exception
+) -> None:
+    """A server that is down or still booting is retried by Home Assistant.
+
+    Without this an entry whose database is not up yet when Home Assistant
+    starts would stay failed until someone reloaded it by hand.
+    """
+    entry = await _setup_failing(hass, error)
+
+    assert entry.state is ConfigEntryState.SETUP_RETRY
+    assert not list(hass.config_entries.flow.async_progress_by_handler(DOMAIN))
+
+
+async def test_setup_starts_reauth_when_the_credentials_are_refused(
+    hass: HomeAssistant,
+) -> None:
+    """Refused credentials are not retried: only the user can fix them."""
+    entry = await _setup_failing(hass, MySQLError(1045, "Access denied"))
 
     assert entry.state is ConfigEntryState.SETUP_ERROR
+    flows = list(hass.config_entries.flow.async_progress_by_handler(DOMAIN))
+    assert len(flows) == 1
+    assert flows[0]["context"]["source"] == "reauth"
+    assert flows[0]["context"]["entry_id"] == entry.entry_id
+
+
+@pytest.mark.parametrize("errno", [1044, 1049])
+async def test_setup_fails_without_reauth_for_an_unusable_database(
+    hass: HomeAssistant, errno: int
+) -> None:
+    """A new password does not create a database or grant access to one."""
+    entry = await _setup_failing(hass, MySQLError(errno, "Unknown database"))
+
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+    assert not list(hass.config_entries.flow.async_progress_by_handler(DOMAIN))
+
+
+async def test_setup_does_not_log_its_own_traceback(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Home Assistant reports the failure; the integration adds no traceback."""
+    await _setup_failing(hass, MySQLError(2003, "Can't connect to MySQL server"))
+
+    assert not [
+        record
+        for record in caplog.records
+        if record.name == "custom_components.mysql_query" and record.exc_info
+    ]
 
 
 async def test_execute_service_select_query(hass: HomeAssistant) -> None:
@@ -451,8 +509,33 @@ async def test_setup_fails_when_tls_is_not_established(hass: HomeAssistant) -> N
         assert not await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-    assert entry.state is not ConfigEntryState.LOADED
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+    # A password or a wait does not turn encryption on, so no reauth either.
+    assert not list(hass.config_entries.flow.async_progress_by_handler(DOMAIN))
     # The pool it had already built is handed back, not left dangling.
+    assert pool.closed
+    assert pool.wait_closed_called
+
+
+async def test_setup_retries_when_the_tls_check_loses_the_connection(
+    hass: HomeAssistant,
+) -> None:
+    """A connection that drops during the TLS check is a connection problem."""
+    pool = FakePool(FakeConnection(FakeCursor()))
+    entry = MockConfigEntry(domain=DOMAIN, data={**ENTRY_DATA, CONF_USE_TLS: True})
+    entry.add_to_hass(hass)
+
+    with (
+        patch_create_pool(pool),
+        patch(
+            "custom_components.mysql_query.async_verify_tls",
+            AsyncMock(side_effect=MySQLError(2013, "Lost connection")),
+        ),
+    ):
+        assert not await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.SETUP_RETRY
     assert pool.closed
     assert pool.wait_closed_called
 

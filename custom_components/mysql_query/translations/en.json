@@ -24,6 +24,14 @@
                     "mysql_use_tls": "Encrypts the traffic to the database. The server must have TLS configured; the connection fails if it does not. The server certificate is not verified, so this protects against reading along on the network, not against a server impersonating yours. Off by default so existing setups keep working.",
                     "mysql_readonly": "Refuses the Execute action on this connection, whatever the statement says. Use it for a connection that only feeds dashboards or reports, so a write aimed at the wrong connection cannot land here. Off by default."
                 }
+            },
+            "reauth_confirm": {
+                "title": "Sign in again",
+                "description": "The database refused the username or password of {connection}. Enter the credentials to use from now on.",
+                "data": {
+                    "mysql_username": "Username",
+                    "mysql_password": "Password"
+                }
             }
         },
         "error": {
@@ -35,7 +43,8 @@
         },
         "abort": {
             "already_configured": "This connection is already configured.",
-            "cannot_connect": "Failed to connect during import."
+            "cannot_connect": "Failed to connect during import.",
+            "reauth_successful": "The credentials were updated."
         }
     },
     "options": {
@@ -87,6 +96,18 @@
         },
         "read_via_execute": {
             "message": "mysql_query.execute only runs statements that change something. Call mysql_query.query for a statement that only reads; it reports the same metadata."
+        },
+        "invalid_auth": {
+            "message": "The database refused the username or password of \"{connection}\". Enter new credentials to continue."
+        },
+        "unknown_database": {
+            "message": "The database of \"{connection}\" does not exist, or its user has no access to it. A new password does not fix this: check the database name and the privileges of the user."
+        },
+        "cannot_connect": {
+            "message": "Could not connect to \"{connection}\": {error}. Home Assistant tries again by itself."
+        },
+        "tls_unavailable": {
+            "message": "\"{connection}\" is set to use TLS, but the server accepted the connection without encrypting it. Configure TLS on the database, or turn the encryption option off."
         }
     },
     "services": {

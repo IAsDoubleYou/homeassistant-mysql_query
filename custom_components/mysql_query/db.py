@@ -74,6 +74,11 @@ async def async_verify_tls(conn: aiomysql.Connection) -> None:
 # as a refused connection, carries only the message.
 _ERRNO_MESSAGE_ARGS = 2
 
+# MySQL error codes that setup and the config flow tell apart from the rest.
+ERRNO_DATABASE_ACCESS_DENIED = 1044
+ERRNO_ACCESS_DENIED = 1045
+ERRNO_UNKNOWN_DATABASE = 1049
+
 
 def build_connection_kwargs(config: Mapping[str, Any]) -> dict[str, Any]:
     """Translate a config entry into aiomysql connection arguments."""

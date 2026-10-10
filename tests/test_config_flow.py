@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 from aiomysql import Error as MySQLError
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
@@ -604,3 +605,83 @@ async def test_options_flow_can_mark_a_connection_readonly(
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.data[CONF_READONLY_CONNECTION] is True
+
+
+async def _start_reauth(hass: HomeAssistant, entry: MockConfigEntry) -> dict:
+    """Start the reauth flow of an entry the way Home Assistant does."""
+    return await entry.start_reauth_flow(hass)
+
+
+async def test_reauth_flow_updates_the_credentials(hass: HomeAssistant) -> None:
+    """New credentials replace the old ones on the same entry.
+
+    The flow must not go through the user step: that one aborts on the unique
+    id of the entry that is being repaired, and would create a second entry.
+    """
+    entry = MockConfigEntry(
+        domain=DOMAIN, data=USER_INPUT, unique_id="localhost_test_db"
+    )
+    entry.add_to_hass(hass)
+
+    result = await _start_reauth(hass, entry)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reauth_confirm"
+
+    with (
+        patch_driver() as mock_connect,
+        patch(
+            "custom_components.mysql_query.async_setup_entry",
+            AsyncMock(return_value=True),
+        ) as setup,
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_MYSQL_USERNAME: "new_user", CONF_MYSQL_PASSWORD: "new_pass"},
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert entry.data[CONF_MYSQL_USERNAME] == "new_user"
+    assert entry.data[CONF_MYSQL_PASSWORD] == "new_pass"
+    # Everything else stays as it was, and no second entry appeared.
+    assert entry.data[CONF_MYSQL_HOST] == "localhost"
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+    # The new credentials were tried before they were saved, then the entry
+    # was reloaded with them.
+    assert mock_connect.await_args.kwargs["password"] == "new_pass"
+    assert setup.await_count == 1
+
+
+async def test_reauth_flow_does_not_prefill_the_password(hass: HomeAssistant) -> None:
+    """The stored password never travels back to the browser."""
+    entry = MockConfigEntry(domain=DOMAIN, data=USER_INPUT)
+    entry.add_to_hass(hass)
+
+    result = await _start_reauth(hass, entry)
+
+    schema = result["data_schema"].schema
+    password_key = next(k for k in schema if k == CONF_MYSQL_PASSWORD)
+    assert password_key.default is vol.UNDEFINED
+    username_key = next(k for k in schema if k == CONF_MYSQL_USERNAME)
+    assert username_key.default() == "test_user"
+
+
+async def test_reauth_flow_reports_credentials_that_are_still_refused(
+    hass: HomeAssistant,
+) -> None:
+    """A wrong password keeps the form open, and the entry untouched."""
+    entry = MockConfigEntry(domain=DOMAIN, data=USER_INPUT)
+    entry.add_to_hass(hass)
+    result = await _start_reauth(hass, entry)
+
+    with patch_driver(side_effect=MySQLError(1045, "Access denied")):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_MYSQL_USERNAME: "test_user", CONF_MYSQL_PASSWORD: "still_wrong"},
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reauth_confirm"
+    assert result["errors"] == {"base": "invalid_auth"}
+    assert entry.data[CONF_MYSQL_PASSWORD] == "test_pass"

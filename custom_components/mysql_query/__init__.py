@@ -23,7 +23,13 @@ from homeassistant.core import (
     SupportsResponse,
     callback,
 )
-from homeassistant.exceptions import HomeAssistantError, TemplateError
+from homeassistant.exceptions import (
+    ConfigEntryAuthFailed,
+    ConfigEntryError,
+    ConfigEntryNotReady,
+    HomeAssistantError,
+    TemplateError,
+)
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.template import Template
 from homeassistant.helpers.typing import ConfigType
@@ -47,6 +53,9 @@ from .const import (
     SERVICE_QUERY,
 )
 from .db import (
+    ERRNO_ACCESS_DENIED,
+    ERRNO_DATABASE_ACCESS_DENIED,
+    ERRNO_UNKNOWN_DATABASE,
     TLSUnavailableError,
     async_create_pool,
     async_verify_tls,
@@ -435,6 +444,84 @@ async def _async_run_statement(
                 instance.pool.release(conn)
 
 
+def _setup_error(entry: ConfigEntry, err: BaseException) -> ConfigEntryError:
+    """Return the exception that tells Home Assistant why setup failed.
+
+    The cause decides what Home Assistant does next. A server that cannot be
+    reached right now (down, still booting, network not up yet) is worth
+    retrying, which ConfigEntryNotReady makes Home Assistant do on its own.
+    Refused credentials start the reauth flow, because only the user can fix
+    those. A database that does not exist, or that this user may not use, is
+    not fixed by a new password and not by waiting, so it is a plain error.
+
+    Home Assistant logs the exception it is given, so nothing is logged here.
+    """
+    errno, message = error_details(err)
+    placeholders = {"connection": entry.title, "error": message or type(err).__name__}
+
+    if errno == ERRNO_ACCESS_DENIED:
+        return ConfigEntryAuthFailed(
+            translation_domain=DOMAIN,
+            translation_key="invalid_auth",
+            translation_placeholders=placeholders,
+        )
+    if errno in (ERRNO_DATABASE_ACCESS_DENIED, ERRNO_UNKNOWN_DATABASE):
+        return ConfigEntryError(
+            translation_domain=DOMAIN,
+            translation_key="unknown_database",
+            translation_placeholders=placeholders,
+        )
+    return ConfigEntryNotReady(
+        translation_domain=DOMAIN,
+        translation_key="cannot_connect",
+        translation_placeholders=placeholders,
+    )
+
+
+async def _async_close_pool(pool: aiomysql.Pool) -> None:
+    """Close a pool and wait until its connections are gone."""
+    pool.close()
+    await pool.wait_closed()
+
+
+async def _async_open_pool(entry: ConfigEntry) -> aiomysql.Pool:
+    """Open the pool of an entry, or raise the exception that fits the failure.
+
+    A pool that was built but is then found unusable is closed again before the
+    exception leaves, so a failed attempt never leaves connections behind.
+    """
+    config = entry.data
+
+    try:
+        pool = await async_create_pool(config)
+    except (aiomysql.Error, OSError, TimeoutError) as err:
+        raise _setup_error(entry, err) from err
+
+    # Asking for TLS is not the same as getting it: aiomysql skips the
+    # handshake when the server does not advertise it and carries on in plain
+    # text. Fail the setup instead, so a connection that is supposed to be
+    # encrypted never quietly stops being encrypted.
+    if tls_requested(config):
+        try:
+            conn = await pool.acquire()
+            try:
+                await async_verify_tls(conn)
+            finally:
+                pool.release(conn)
+        except TLSUnavailableError as err:
+            await _async_close_pool(pool)
+            raise ConfigEntryError(
+                translation_domain=DOMAIN,
+                translation_key="tls_unavailable",
+                translation_placeholders={"connection": entry.title},
+            ) from err
+        except (aiomysql.Error, OSError, TimeoutError) as err:
+            await _async_close_pool(pool)
+            raise _setup_error(entry, err) from err
+
+    return pool
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the mysql_query component from YAML (Legacy/Import)."""
     if DOMAIN in config:
@@ -458,34 +545,7 @@ async def async_setup_entry(  # noqa: PLR0915
     one to use at call time.
     """
     config = entry.data
-
-    try:
-        pool = await async_create_pool(config)
-    except Exception as e:
-        _LOGGER.error(
-            "Could not connect to mysql server for %s: %s",
-            entry.title,
-            str(e),
-            exc_info=True,
-        )
-        return False
-
-    # Asking for TLS is not the same as getting it: aiomysql skips the
-    # handshake when the server does not advertise it and carries on in plain
-    # text. Fail the setup instead, so a connection that is supposed to be
-    # encrypted never quietly stops being encrypted.
-    if tls_requested(config):
-        try:
-            conn = await pool.acquire()
-            try:
-                await async_verify_tls(conn)
-            finally:
-                pool.release(conn)
-        except (TLSUnavailableError, aiomysql.Error, OSError) as err:
-            _LOGGER.error("TLS is enabled for %s but %s", entry.title, err)
-            pool.close()
-            await pool.wait_closed()
-            return False
+    pool = await _async_open_pool(entry)
 
     entry.runtime_data = MySQLInstance(
         pool=pool,

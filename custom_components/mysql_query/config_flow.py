@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import logging
 from typing import Any
 
@@ -35,14 +36,16 @@ from .const import (
     DEFAULT_USE_TLS,
     DOMAIN,
 )
-from .db import TLSUnavailableError, async_test_connection, error_details
+from .db import (
+    ERRNO_ACCESS_DENIED,
+    ERRNO_DATABASE_ACCESS_DENIED,
+    ERRNO_UNKNOWN_DATABASE,
+    TLSUnavailableError,
+    async_test_connection,
+    error_details,
+)
 
 _LOGGER = logging.getLogger(__name__)
-
-# MySQL error codes worth translating into a message of their own.
-_ERRNO_DATABASE_ACCESS_DENIED = 1044
-_ERRNO_ACCESS_DENIED = 1045
-_ERRNO_UNKNOWN_DATABASE = 1049
 
 # The driver message is shown on the form itself, so it is cut off before it
 # pushes the rest of the dialog out of view.
@@ -75,9 +78,9 @@ async def _async_validate(config: dict[str, Any]) -> tuple[str | None, str]:
         return "tls_unavailable", ""
     except (Error, OSError, TimeoutError) as err:
         errno, _ = error_details(err)
-        if errno == _ERRNO_ACCESS_DENIED:
+        if errno == ERRNO_ACCESS_DENIED:
             return "invalid_auth", ""
-        if errno in (_ERRNO_DATABASE_ACCESS_DENIED, _ERRNO_UNKNOWN_DATABASE):
+        if errno in (ERRNO_DATABASE_ACCESS_DENIED, ERRNO_UNKNOWN_DATABASE):
             return "unknown_database", ""
         # A refused connection, a timeout and a rejected charset all end up
         # here and each needs a different fix, so the reason from the driver
@@ -180,6 +183,50 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=get_schema(user_input or {}),
             errors=errors,
             description_placeholders={"error": detail},
+        )
+
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
+        """Start the flow that asks for new credentials.
+
+        Home Assistant starts it when setup reports refused credentials. It
+        deliberately does not go through async_step_user: that step aborts on
+        a unique_id that is already configured, which is exactly the situation
+        here, and it would create a second entry instead of updating this one.
+        """
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask for the username and password, and update the entry with them."""
+        entry = self._get_reauth_entry()
+        errors: dict[str, str] = {}
+        detail = ""
+
+        if user_input is not None:
+            error, detail = await _async_validate({**entry.data, **user_input})
+            if error is None:
+                return self.async_update_reload_and_abort(
+                    entry, data_updates=user_input
+                )
+            errors["base"] = error
+
+        current = user_input or entry.data
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_MYSQL_USERNAME,
+                        default=current.get(CONF_MYSQL_USERNAME, ""),
+                    ): str,
+                    vol.Required(CONF_MYSQL_PASSWORD): str,
+                }
+            ),
+            errors=errors,
+            description_placeholders={"connection": entry.title, "error": detail},
         )
 
     async def async_step_import(self, import_data: dict[str, Any]) -> ConfigFlowResult:
