@@ -111,6 +111,24 @@
         },
         "tls_unavailable": {
             "message": "\"{connection}\" is set to use TLS, but the server accepted the connection without encrypting it. Configure TLS on the database, or turn the encryption option off."
+        },
+        "no_connection": {
+            "message": "No MySQL connection is loaded. Add one under Settings → Devices & services, or check that it is not failing to start."
+        },
+        "connection_not_loaded": {
+            "message": "The connection \"{connection}\" is not loaded, so it cannot run this call. Check its status under Settings → Devices & services."
+        },
+        "invalid_template": {
+            "message": "A template in the values does not render: {error}"
+        },
+        "mysql_error": {
+            "message": "The database reported an error: {details}"
+        },
+        "timeout": {
+            "message": "The call on \"{connection}\" timed out while borrowing a connection from the pool or running the statement. The limit is the query timeout of the connection."
+        },
+        "unexpected_error": {
+            "message": "The call failed unexpectedly: {error}"
         }
     },
     "services": {

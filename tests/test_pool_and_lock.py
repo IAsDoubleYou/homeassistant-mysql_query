@@ -10,7 +10,7 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
 from custom_components.mysql_query.const import (
     ATTR_CONFIG_ENTRY,
@@ -186,7 +186,7 @@ async def test_acquire_timeout_is_reported(hass: HomeAssistant) -> None:
     await _setup_entry(hass, pool, data={**ENTRY_DATA, CONF_QUERY_TIMEOUT: 0})
     pool.acquire = never_acquire
 
-    with pytest.raises(HomeAssistantError, match="Timed out"):
+    with pytest.raises(HomeAssistantError, match="timed out"):
         await hass.services.async_call(
             DOMAIN,
             SERVICE_QUERY,
@@ -211,7 +211,7 @@ async def test_query_timeout_is_reported(hass: HomeAssistant) -> None:
 
     await _setup_entry(hass, pool, data={**ENTRY_DATA, CONF_QUERY_TIMEOUT: 0})
 
-    with pytest.raises(HomeAssistantError, match="Timed out"):
+    with pytest.raises(HomeAssistantError, match="timed out"):
         await hass.services.async_call(
             DOMAIN,
             SERVICE_QUERY,
@@ -544,17 +544,25 @@ async def test_unloading_one_connection_keeps_the_services(
     assert second.acquired == 1
 
 
-async def test_unloading_the_last_connection_removes_the_services(
+async def test_the_services_stay_after_the_last_connection_is_unloaded(
     hass: HomeAssistant,
 ) -> None:
-    """The services are gone once no connection is loaded any more."""
+    """The actions stay listed, and a call says why it cannot run."""
     entry = await _setup_entry(hass, FakePool(FakeConnection(_cursor())))
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert not hass.services.has_service(DOMAIN, SERVICE_QUERY)
-    assert not hass.services.has_service(DOMAIN, SERVICE_EXECUTE)
+    assert hass.services.has_service(DOMAIN, SERVICE_QUERY)
+    assert hass.services.has_service(DOMAIN, SERVICE_EXECUTE)
+    with pytest.raises(ServiceValidationError, match="No MySQL connection"):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_QUERY,
+            {ATTR_QUERY: "SELECT 1"},
+            blocking=True,
+            return_response=True,
+        )
 
 
 async def test_call_on_an_unloaded_connection_is_refused(hass: HomeAssistant) -> None:
@@ -567,7 +575,7 @@ async def test_call_on_an_unloaded_connection_is_refused(hass: HomeAssistant) ->
     assert await hass.config_entries.async_unload(first_entry.entry_id)
     await hass.async_block_till_done()
 
-    with pytest.raises(HomeAssistantError, match="No database instance available"):
+    with pytest.raises(ServiceValidationError, match="is not loaded"):
         await hass.services.async_call(
             DOMAIN,
             SERVICE_QUERY,

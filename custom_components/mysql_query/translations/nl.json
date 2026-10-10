@@ -111,6 +111,24 @@
         },
         "tls_unavailable": {
             "message": "\"{connection}\" staat ingesteld op TLS, maar de server accepteerde de verbinding zonder te versleutelen. Configureer TLS op de database, of zet de versleutelingsoptie uit."
+        },
+        "no_connection": {
+            "message": "Er is geen MySQL-verbinding geladen. Voeg er een toe onder Instellingen → Apparaten & services, of controleer of die niet bij het opstarten faalt."
+        },
+        "connection_not_loaded": {
+            "message": "De verbinding \"{connection}\" is niet geladen en kan deze aanroep dus niet uitvoeren. Controleer de status onder Instellingen → Apparaten & services."
+        },
+        "invalid_template": {
+            "message": "Een template in de waarden kan niet worden gerenderd: {error}"
+        },
+        "mysql_error": {
+            "message": "De database meldde een fout: {details}"
+        },
+        "timeout": {
+            "message": "De aanroep op \"{connection}\" liep op een time-out tijdens het lenen van een connectie uit de pool of het uitvoeren van het statement. De grens is de query-time-out van de verbinding."
+        },
+        "unexpected_error": {
+            "message": "De aanroep mislukte onverwacht: {error}"
         }
     },
     "services": {

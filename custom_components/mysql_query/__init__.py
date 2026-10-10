@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time as dt_time, timedelta
 from decimal import Decimal
+from functools import partial
 import logging
 import math
 import time
@@ -28,6 +29,7 @@ from homeassistant.exceptions import (
     ConfigEntryError,
     ConfigEntryNotReady,
     HomeAssistantError,
+    ServiceValidationError,
     TemplateError,
 )
 import homeassistant.helpers.config_validation as cv
@@ -167,7 +169,10 @@ def _async_check_call(instance: MySQLInstance, service: str, query: str) -> None
 
     Raises rather than reporting through the response: this is a refusal to
     run anything, not the outcome of a statement, and a caller that does not
-    read `succeeded` would otherwise take it for a success.
+    read `succeeded` would otherwise take it for a success. It is a
+    ServiceValidationError because the caller asked for something that cannot
+    be done, which is not a failure of the integration or the database, and it
+    is raised whatever raise_on_error says.
 
     Every raise carries a translation_key instead of only an English message,
     so Home Assistant can render it in the caller's own language the same way
@@ -176,7 +181,7 @@ def _async_check_call(instance: MySQLInstance, service: str, query: str) -> None
     Assistant's translated exceptions work.
     """
     if service == SERVICE_EXECUTE and instance.read_only:
-        raise HomeAssistantError(
+        raise ServiceValidationError(
             translation_domain=DOMAIN,
             translation_key="readonly_connection",
             translation_placeholders={"connection": instance.title},
@@ -185,12 +190,12 @@ def _async_check_call(instance: MySQLInstance, service: str, query: str) -> None
     statements = split_statements(query)
 
     if not statements:
-        raise HomeAssistantError(
+        raise ServiceValidationError(
             translation_domain=DOMAIN, translation_key="empty_statement"
         )
 
     if len(statements) > 1:
-        raise HomeAssistantError(
+        raise ServiceValidationError(
             translation_domain=DOMAIN,
             translation_key="multiple_statements",
             translation_placeholders={"count": str(len(statements))},
@@ -199,31 +204,45 @@ def _async_check_call(instance: MySQLInstance, service: str, query: str) -> None
     read_only = is_read_only(statements[0])
 
     if service == SERVICE_QUERY and not read_only:
-        raise HomeAssistantError(
+        raise ServiceValidationError(
             translation_domain=DOMAIN, translation_key="write_via_query"
         )
 
     if service == SERVICE_EXECUTE and read_only:
-        raise HomeAssistantError(
+        raise ServiceValidationError(
             translation_domain=DOMAIN, translation_key="read_via_execute"
         )
 
 
 @callback
-def _async_instance(hass: HomeAssistant, entry_id: str | None) -> MySQLInstance | None:
+def _async_get_instance(hass: HomeAssistant, entry_id: str | None) -> MySQLInstance:
     """Return the connection a service call should run on.
 
     Without an entry ID the first loaded connection is used. That order comes
     from the config entry registry, so it is the same on every call and does
     not shift when one of the connections is reloaded.
+
+    The services stay registered while no connection is loaded, so they can
+    say why a call cannot run instead of vanishing from the action list.
     """
     entries = hass.config_entries.async_loaded_entries(DOMAIN)
+
     if entry_id:
-        return next(
-            (entry.runtime_data for entry in entries if entry.entry_id == entry_id),
-            None,
+        for entry in entries:
+            if entry.entry_id == entry_id:
+                return entry.runtime_data
+        known = hass.config_entries.async_get_entry(entry_id)
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="connection_not_loaded",
+            translation_placeholders={"connection": known.title if known else entry_id},
         )
-    return next((entry.runtime_data for entry in entries), None)
+
+    for entry in entries:
+        return entry.runtime_data
+    raise ServiceValidationError(
+        translation_domain=DOMAIN, translation_key="no_connection"
+    )
 
 
 def format_timedelta(value: timedelta) -> str:
@@ -317,7 +336,11 @@ def render_value(hass: HomeAssistant, value: Any) -> Any:
     try:
         return template.async_render(parse_result=True)
     except TemplateError as err:
-        raise HomeAssistantError(f"Invalid template in values: {err}") from err
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="invalid_template",
+            translation_placeholders={"error": str(err)},
+        ) from err
 
 
 def render_values(
@@ -526,24 +549,37 @@ async def _async_open_pool(entry: ConfigEntry) -> aiomysql.Pool:
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up the integration.
+    """Set up the integration: register the services.
 
     There is no YAML configuration: connections are config entries. The schema
     above makes Home Assistant report a leftover mysql_query: section instead
     of importing it.
+
+    The services belong to the integration, not to a connection, so they are
+    registered here once. A call looks up the connection it should use when it
+    runs, and says so when there is none, instead of the service disappearing
+    when the last connection is unloaded.
     """
+    handler = partial(_async_handle_service, hass)
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_QUERY,
+        handler,
+        schema=QUERY_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_EXECUTE,
+        handler,
+        schema=EXECUTE_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
     return True
 
 
-async def async_setup_entry(  # noqa: PLR0915
-    hass: HomeAssistant, entry: MySQLQueryConfigEntry
-) -> bool:
-    """Set up mysql_query from a config entry.
-
-    Long on purpose: the service handler is nested here so it closes over
-    hass. It is registered once and serves every connection, looking up the
-    one to use at call time.
-    """
+async def async_setup_entry(hass: HomeAssistant, entry: MySQLQueryConfigEntry) -> bool:
+    """Set up mysql_query from a config entry."""
     # Connection and behaviour settings are stored apart, in the entry data and
     # its options, but everything below reads them as one.
     config = merged_config(entry)
@@ -558,124 +594,133 @@ async def async_setup_entry(  # noqa: PLR0915
         ),
     )
 
-    async def async_handle_service(call: ServiceCall) -> ServiceResponse:
-        """Handle service calls with instance selection and row limiting."""
-        _query = call.data[ATTR_QUERY]
-        _values = call.data.get(ATTR_VALUES)
-        _db4query = call.data.get(ATTR_DB4QUERY)
-        target_entry_id = call.data.get(ATTR_CONFIG_ENTRY)
-
-        instance = _async_instance(hass, target_entry_id)
-        if instance is None:
-            raise HomeAssistantError("No database instance available.")
-
-        # Before anything is borrowed from the pool: a refused call must not
-        # cost a connection.
-        _async_check_call(instance, call.service, _query)
-
-        inst_config = instance.config
-        mysql_db = inst_config.get(CONF_MYSQL_DB)
-        target_db_name = _db4query if (_db4query and _db4query != "") else mysql_db
-
-        row_limit = int(inst_config.get(CONF_ROW_LIMIT, DEFAULT_ROW_LIMIT))
-        if row_limit < 1:
-            row_limit = DEFAULT_ROW_LIMIT
-
-        response = {
-            "succeeded": False,
-            "execution_time_ms": 0,
-            "database": target_db_name,
-            "user": inst_config.get(CONF_MYSQL_USERNAME),
-            "statement": _query,
-            "rows_found": None,
-            "rows_returned": None,
-            "rows_affected": None,
-            "generated_id": None,
-            "column_names": [],
-            "error": {"message": None, "errno": None, "sqlstate": None},
-            "result": [],
-        }
-
-        try:
-            # Rendering inside the try keeps a broken template on the same
-            # error path as a broken statement: reported in the response for
-            # execute, raised for query.
-            rendered_values = render_values(hass, _values)
-
-            # Serialise the calls on this entry: without the lock two service
-            # calls would push their statements onto the same connection at
-            # the same time and read each other's results.
-            async with instance.lock:
-                start_time = time.perf_counter()
-                db_output = await _async_run_statement(
-                    instance, _query, _db4query, row_limit, rendered_values
-                )
-                execution_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
-
-            response.update(
-                {
-                    "succeeded": True,
-                    "result": db_output["res"],
-                    "column_names": db_output["cols"],
-                    "rows_found": db_output["rows_found"],
-                    "rows_returned": db_output["rows_returned"],
-                    "rows_affected": db_output["rows_affected"],
-                    "generated_id": db_output["gen_id"],
-                    "statement": db_output["statement"],
-                    "execution_time_ms": execution_time_ms,
-                }
-            )
-
-            # Kept inside the try, next to the response they read, rather than
-            # moved into an else block that would sit below the handlers.
-            if call.service == SERVICE_QUERY:
-                return _query_response(response)
-            return response  # noqa: TRY300
-
-        except aiomysql.Error as e:
-            errno, message = error_details(e)
-            _LOGGER.error("MySQL Error [%s]: %s", errno, message)
-            if _raises_on_error(call):
-                raise HomeAssistantError(f"MySQL Error: {message}") from e
-            response["error"] = {"message": message, "errno": errno, "sqlstate": None}
-            return _service_response(call, response)
-        except TimeoutError as e:
-            message = (
-                "Timed out borrowing a connection from the pool or running "
-                "the statement"
-            )
-            _LOGGER.error("%s (%s)", message, instance.title)
-            if _raises_on_error(call):
-                raise HomeAssistantError(message) from e
-            response["error"]["message"] = message
-            return _service_response(call, response)
-        except Exception as e:
-            _LOGGER.error("General Error: %s", str(e))
-            if _raises_on_error(call):
-                raise HomeAssistantError(f"Error: {e!s}") from e
-            response["error"]["message"] = str(e)
-            return _service_response(call, response)
-
-    # The services are global, not per entry: registering them once keeps a
-    # second config entry from replacing the handler of the first.
-    if not hass.services.has_service(DOMAIN, SERVICE_QUERY):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_QUERY,
-            async_handle_service,
-            schema=QUERY_SCHEMA,
-            supports_response=SupportsResponse.ONLY,
-        )
-    if not hass.services.has_service(DOMAIN, SERVICE_EXECUTE):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_EXECUTE,
-            async_handle_service,
-            schema=EXECUTE_SCHEMA,
-            supports_response=SupportsResponse.ONLY,
-        )
-
     return True
+
+
+async def _async_handle_service(
+    hass: HomeAssistant, call: ServiceCall
+) -> ServiceResponse:
+    """Handle service calls with instance selection and row limiting.
+
+    Every failure of the statement itself ends in one of two ways, chosen by
+    raise_on_error: it is raised, as the exception a Home Assistant action is
+    expected to raise, or it is reported in the response. A failure is logged
+    when it is reported and not when it is raised, because whoever catches the
+    exception decides what is worth logging, and one fault should not show up
+    in the log twice.
+    """
+    _query = call.data[ATTR_QUERY]
+    _values = call.data.get(ATTR_VALUES)
+    _db4query = call.data.get(ATTR_DB4QUERY)
+
+    instance = _async_get_instance(hass, call.data.get(ATTR_CONFIG_ENTRY))
+
+    # Before anything is borrowed from the pool: a refused call must not
+    # cost a connection.
+    _async_check_call(instance, call.service, _query)
+
+    inst_config = instance.config
+    mysql_db = inst_config.get(CONF_MYSQL_DB)
+    target_db_name = _db4query if (_db4query and _db4query != "") else mysql_db
+
+    row_limit = int(inst_config.get(CONF_ROW_LIMIT, DEFAULT_ROW_LIMIT))
+    if row_limit < 1:
+        row_limit = DEFAULT_ROW_LIMIT
+
+    response = {
+        "succeeded": False,
+        "execution_time_ms": 0,
+        "database": target_db_name,
+        "user": inst_config.get(CONF_MYSQL_USERNAME),
+        "statement": _query,
+        "rows_found": None,
+        "rows_returned": None,
+        "rows_affected": None,
+        "generated_id": None,
+        "column_names": [],
+        "error": {"message": None, "errno": None, "sqlstate": None},
+        "result": [],
+    }
+
+    def report(message: str, errno: int | None = None) -> ServiceResponse:
+        """Report a failure in the response, and log it."""
+        _LOGGER.error("MySQL call on %s failed: %s", instance.title, message)
+        response["error"] = {"message": message, "errno": errno, "sqlstate": None}
+        return _service_response(call, response)
+
+    try:
+        # Rendering inside the try keeps a broken template on the same
+        # error path as a broken statement: reported in the response for
+        # execute, raised for query.
+        rendered_values = render_values(hass, _values)
+
+        # Serialise the calls on this entry: without the lock two service
+        # calls would push their statements onto the same connection at
+        # the same time and read each other's results.
+        async with instance.lock:
+            start_time = time.perf_counter()
+            db_output = await _async_run_statement(
+                instance, _query, _db4query, row_limit, rendered_values
+            )
+            execution_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+        response.update(
+            {
+                "succeeded": True,
+                "result": db_output["res"],
+                "column_names": db_output["cols"],
+                "rows_found": db_output["rows_found"],
+                "rows_returned": db_output["rows_returned"],
+                "rows_affected": db_output["rows_affected"],
+                "generated_id": db_output["gen_id"],
+                "statement": db_output["statement"],
+                "execution_time_ms": execution_time_ms,
+            }
+        )
+
+        # Kept inside the try, next to the response they read, rather than
+        # moved into an else block that would sit below the handlers.
+        if call.service == SERVICE_QUERY:
+            return _query_response(response)
+        return response  # noqa: TRY300
+
+    except ServiceValidationError as err:
+        # A template that does not render: the caller's mistake, not a fault.
+        if _raises_on_error(call):
+            raise
+        return report(str(err))
+    except aiomysql.Error as err:
+        errno, message = error_details(err)
+        if _raises_on_error(call):
+            _LOGGER.debug("MySQL error [%s]: %s", errno, message)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="mysql_error",
+                translation_placeholders={
+                    "details": f"[{errno}] {message}" if errno else message
+                },
+            ) from err
+        return report(message, errno)
+    except TimeoutError as err:
+        if _raises_on_error(call):
+            _LOGGER.debug("Query on %s timed out", instance.title)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="timeout",
+                translation_placeholders={"connection": instance.title},
+            ) from err
+        return report(
+            "Timed out borrowing a connection from the pool or running the statement"
+        )
+    except Exception as err:
+        if _raises_on_error(call):
+            _LOGGER.debug("Unexpected error on %s: %s", instance.title, err)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="unexpected_error",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        return report(str(err))
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -714,11 +759,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: MySQLQueryConfigEntry) 
     async with instance.lock:
         instance.pool.close()
         await instance.pool.wait_closed()
-
-    # This entry left the loaded set before the unload was handed to us, so an
-    # empty list here means it was the last connection.
-    if not hass.config_entries.async_loaded_entries(DOMAIN):
-        hass.services.async_remove(DOMAIN, SERVICE_QUERY)
-        hass.services.async_remove(DOMAIN, SERVICE_EXECUTE)
 
     return True

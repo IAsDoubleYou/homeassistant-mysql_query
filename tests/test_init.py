@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from unittest.mock import AsyncMock, patch
 
@@ -12,7 +13,7 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.setup import async_setup_component
 
 from custom_components.mysql_query.const import (
@@ -364,7 +365,7 @@ async def test_query_service_broken_template_raises(hass: HomeAssistant) -> None
     """The legacy query service raises on a failing template."""
     await _setup_entry(hass, FakePool(FakeConnection(_select_cursor([], ["id"]))))
 
-    with pytest.raises(HomeAssistantError):
+    with pytest.raises(ServiceValidationError) as err:
         await hass.services.async_call(
             DOMAIN,
             SERVICE_QUERY,
@@ -375,6 +376,8 @@ async def test_query_service_broken_template_raises(hass: HomeAssistant) -> None
             blocking=True,
             return_response=True,
         )
+
+    assert err.value.translation_key == "invalid_template"
 
 
 async def test_execute_service_insert_reports_affected_rows(
@@ -491,7 +494,8 @@ async def test_unload_entry_closes_connection(hass: HomeAssistant) -> None:
 
     assert pool.closed
     assert pool.wait_closed_called
-    assert not hass.services.has_service(DOMAIN, SERVICE_QUERY)
+    # The services belong to the integration, so they outlive the connection.
+    assert hass.services.has_service(DOMAIN, SERVICE_QUERY)
     assert entry.state is ConfigEntryState.NOT_LOADED
 
 
@@ -618,7 +622,9 @@ async def test_execute_refuses_a_read_statement(hass: HomeAssistant) -> None:
     pool = FakePool(FakeConnection(_select_cursor(rows=[], columns=["id"])))
     await _setup_entry(hass, pool)
 
-    with pytest.raises(HomeAssistantError, match=re.escape("mysql_query.query")) as err:
+    with pytest.raises(
+        ServiceValidationError, match=re.escape("mysql_query.query")
+    ) as err:
         await hass.services.async_call(
             DOMAIN,
             SERVICE_EXECUTE,
@@ -644,7 +650,7 @@ async def test_multiple_statements_are_refused(
     pool = FakePool(FakeConnection(FakeCursor()))
     await _setup_entry(hass, pool)
 
-    with pytest.raises(HomeAssistantError, match="exactly one statement") as err:
+    with pytest.raises(ServiceValidationError, match="exactly one statement") as err:
         await hass.services.async_call(
             DOMAIN,
             service,
@@ -669,7 +675,7 @@ async def test_empty_statement_is_refused(hass: HomeAssistant, service: str) -> 
     pool = FakePool(FakeConnection(FakeCursor()))
     await _setup_entry(hass, pool)
 
-    with pytest.raises(HomeAssistantError) as err:
+    with pytest.raises(ServiceValidationError) as err:
         await hass.services.async_call(
             DOMAIN,
             service,
@@ -746,7 +752,7 @@ async def test_readonly_connection_refuses_execute(hass: HomeAssistant) -> None:
         hass, pool, data={**ENTRY_DATA, CONF_READONLY_CONNECTION: True}
     )
 
-    with pytest.raises(HomeAssistantError, match="read-only") as err:
+    with pytest.raises(ServiceValidationError, match="read-only") as err:
         await hass.services.async_call(
             DOMAIN,
             SERVICE_EXECUTE,
@@ -906,3 +912,167 @@ async def test_yaml_configuration_is_not_imported(hass: HomeAssistant) -> None:
 
     assert not hass.config_entries.async_entries(DOMAIN)
     assert not list(hass.config_entries.flow.async_progress_by_handler(DOMAIN))
+
+
+async def test_services_exist_before_any_connection_is_set_up(
+    hass: HomeAssistant,
+) -> None:
+    """They are registered with the integration, not with its first entry."""
+    assert await async_setup_component(hass, DOMAIN, {})
+
+    assert hass.services.has_service(DOMAIN, SERVICE_QUERY)
+    assert hass.services.has_service(DOMAIN, SERVICE_EXECUTE)
+
+
+@pytest.mark.parametrize("service", [SERVICE_QUERY, SERVICE_EXECUTE])
+async def test_a_call_without_a_loaded_connection_says_so(
+    hass: HomeAssistant, service: str
+) -> None:
+    """Without a connection the call fails with a reason, not with a missing action."""
+    assert await async_setup_component(hass, DOMAIN, {})
+
+    with pytest.raises(ServiceValidationError) as err:
+        await hass.services.async_call(
+            DOMAIN,
+            service,
+            {ATTR_QUERY: "SELECT 1"},
+            blocking=True,
+            return_response=True,
+        )
+
+    assert err.value.translation_domain == DOMAIN
+    assert err.value.translation_key == "no_connection"
+
+
+@pytest.mark.parametrize("service", [SERVICE_QUERY, SERVICE_EXECUTE])
+async def test_a_failure_of_the_database_is_not_a_validation_error(
+    hass: HomeAssistant, service: str
+) -> None:
+    """A database error is a failure, not a mistake of the caller."""
+    query = "SELECT 1" if service == SERVICE_QUERY else "DELETE FROM test"
+    cursor = FakeCursor(error=MySQLError(1064, "Syntax error"))
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    with pytest.raises(HomeAssistantError, match="Syntax error") as err:
+        await hass.services.async_call(
+            DOMAIN,
+            service,
+            {ATTR_QUERY: query, ATTR_RAISE_ON_ERROR: True},
+            blocking=True,
+            return_response=True,
+        )
+
+    assert not isinstance(err.value, ServiceValidationError)
+    assert err.value.translation_key == "mysql_error"
+    assert err.value.translation_placeholders == {"details": "[1064] Syntax error"}
+
+
+async def test_an_unexpected_failure_is_raised_as_a_translated_error(
+    hass: HomeAssistant,
+) -> None:
+    """Whatever else goes wrong still reaches the caller as a Home Assistant error."""
+    await _setup_entry(hass, FakePool(FakeConnection(FakeCursor())))
+
+    with (
+        patch(
+            "custom_components.mysql_query._async_run_statement",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        ),
+        pytest.raises(HomeAssistantError, match="boom") as err,
+    ):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_QUERY,
+            {ATTR_QUERY: "SELECT 1"},
+            blocking=True,
+            return_response=True,
+        )
+
+    assert err.value.translation_key == "unexpected_error"
+
+
+async def test_a_raised_failure_is_not_also_logged_as_an_error(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """One fault, one report: the caller gets the exception, the log stays quiet."""
+    cursor = FakeCursor(error=MySQLError(1064, "Syntax error"))
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_QUERY,
+            {ATTR_QUERY: "SELECT 1"},
+            blocking=True,
+            return_response=True,
+        )
+
+    assert not [
+        record
+        for record in caplog.records
+        if record.name == "custom_components.mysql_query"
+        and record.levelno >= logging.ERROR
+    ]
+
+
+async def test_a_reported_failure_is_logged(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A failure that only travels in the response would otherwise go unseen."""
+    cursor = FakeCursor(error=MySQLError(1064, "Syntax error"))
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_EXECUTE,
+        {ATTR_QUERY: "DELETE FROM test"},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert response["succeeded"] is False
+    assert "Syntax error" in caplog.text
+
+
+async def test_execute_raises_a_validation_error_for_a_broken_template_when_asked(
+    hass: HomeAssistant,
+) -> None:
+    """A template that does not render is the caller's mistake, and raises as such."""
+    await _setup_entry(hass, FakePool(FakeConnection(FakeCursor())))
+
+    with pytest.raises(ServiceValidationError) as err:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_EXECUTE,
+            {
+                ATTR_QUERY: "DELETE FROM test WHERE id = %s",
+                ATTR_VALUES: ["{{ 1 / 0 }}"],
+                ATTR_RAISE_ON_ERROR: True,
+            },
+            blocking=True,
+            return_response=True,
+        )
+
+    assert err.value.translation_key == "invalid_template"
+
+
+async def test_refusals_raise_even_when_errors_are_reported_in_the_response(
+    hass: HomeAssistant,
+) -> None:
+    """raise_on_error only decides what a failed statement does.
+
+    A call that was refused before anything ran has no statement outcome to
+    put in a response, so it raises whatever the switch says.
+    """
+    await _setup_entry(hass, FakePool(FakeConnection(FakeCursor())))
+
+    with pytest.raises(ServiceValidationError) as err:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_EXECUTE,
+            {ATTR_QUERY: "SELECT 1", ATTR_RAISE_ON_ERROR: False},
+            blocking=True,
+            return_response=True,
+        )
+
+    assert err.value.translation_key == "read_via_execute"
