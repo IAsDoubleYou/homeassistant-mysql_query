@@ -25,7 +25,6 @@ from typing import Final
 READ_ONLY_KEYWORDS: Final = frozenset(
     {
         "select",
-        "with",
         "show",
         "describe",
         "desc",
@@ -37,6 +36,15 @@ READ_ONLY_KEYWORDS: Final = frozenset(
         "values",
     }
 )
+
+# WITH opens a statement without being one: it names common table expressions
+# and then hands over to the statement that uses them, which MySQL 8 and
+# MariaDB let be a SELECT but also an UPDATE or a DELETE. So it is not on the
+# list above; the statement behind the CTE list decides (see is_read_only).
+_WITH_KEYWORD: Final = "with"
+
+# What the statement behind a CTE list may be to still only read.
+_CTE_READ_ONLY_KEYWORDS: Final = frozenset({"select", "table", "values"})
 
 # EXPLAIN and ANALYZE are not statements of their own, they wrap one. Which of
 # the two it is decides whether the wrapped statement is only planned or
@@ -58,6 +66,18 @@ _FIRST_WORD_RE: Final = re.compile(r"[(\s]*([A-Za-z_]+)")
 _WORD_RE: Final = re.compile(r"[(\s]*([A-Za-z_]+)")
 
 _QUOTES: Final = ("'", '"', "`")
+
+# MySQL runs the text inside /*! ... */ (and MariaDB inside /*M! ... */), with
+# an optional version number after the marker. It looks like a comment and
+# executes like code, so it is read as code here.
+_EXECUTABLE_COMMENT_RE: Final = re.compile(r"/\*M?!(?:\d+)?")
+
+# Writes a file on the database server, whatever the statement around it is.
+_INTO_FILE_RE: Final = re.compile(r"\binto\s+(?:outfile|dumpfile)\b", re.IGNORECASE)
+
+_CTE_NAME_RE: Final = re.compile(r"\s*(?:`(?:[^`]|``)+`|[A-Za-z0-9_$\u0080-\uffff]+)")
+_AS_RE: Final = re.compile(r"\s*as\b", re.IGNORECASE)
+_WITH_RE: Final = re.compile(r"[(\s]*with\b(\s+recursive\b)?", re.IGNORECASE)
 
 
 def _skip_quoted(statement: str, start: int, quote: str) -> int:
@@ -90,6 +110,11 @@ def strip_comments(statement: str) -> str:
     "/* note */ DELETE FROM x" has to read as a delete rather than as
     something that starts with a slash. Quoted sections are left alone: a
     "--" inside a string is data, not a comment.
+
+    The exception is the executable comment, "/*! ... */" and "/*M! ... */":
+    the server runs what is inside, so its text is kept and only the markers
+    go. Dropping it would let "SELECT 1 /*! INTO OUTFILE '/tmp/x' */" read as
+    a plain SELECT.
     """
     out: list[str] = []
     index = 0
@@ -106,8 +131,13 @@ def strip_comments(statement: str) -> str:
 
         if statement.startswith("/*", index):
             end = statement.find("*/", index + 2)
+            stop = length if end == -1 else end
+            marker = _EXECUTABLE_COMMENT_RE.match(statement, index)
+            if marker is not None:
+                out.append(" " + statement[marker.end() : stop] + " ")
+            else:
+                out.append(" ")
             index = length if end == -1 else end + 2
-            out.append(" ")
             continue
 
         # MySQL wants whitespace after "--", but treating "--x" as a comment
@@ -202,14 +232,121 @@ def unwrap_prefixes(statement: str) -> tuple[str, bool]:
     return text, runs
 
 
+def _mask_quoted(text: str) -> str:
+    """Return the text with everything inside quotes blanked out.
+
+    Lets a keyword search run over the statement without matching the same
+    words inside a string or an identifier: "SELECT 'into outfile'" is only
+    text.
+    """
+    out: list[str] = []
+    index = 0
+    length = len(text)
+
+    while index < length:
+        char = text[index]
+        if char in _QUOTES:
+            end = _skip_quoted(text, index, char)
+            out.append(" " * (end - index))
+            index = end
+            continue
+        out.append(char)
+        index += 1
+
+    return "".join(out)
+
+
+def _skip_balanced(text: str, start: int) -> int | None:
+    """Return the index just past the bracket pair that opens at ``start``.
+
+    Quoted sections are skipped, so a bracket inside a string does not count.
+    None when the brackets never balance.
+    """
+    depth = 0
+    index = start
+    length = len(text)
+
+    while index < length:
+        char = text[index]
+        if char in _QUOTES:
+            index = _skip_quoted(text, index, char)
+            continue
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+        index += 1
+
+    return None
+
+
+def statement_after_ctes(statement: str) -> str | None:
+    """Return the statement a WITH clause hands over to.
+
+    Walks "WITH [RECURSIVE] name [(columns)] AS (...) [, ...]" and returns
+    what follows it, or None when the clause is not shaped like that. A caller
+    that gets None must not assume the statement only reads.
+    """
+    match = _WITH_RE.match(statement)
+    if match is None:
+        return None
+
+    position = match.end()
+    while True:
+        name = _CTE_NAME_RE.match(statement, position)
+        if name is None:
+            return None
+        position = name.end()
+
+        # The optional list of column names.
+        while position < len(statement) and statement[position].isspace():
+            position += 1
+        if statement.startswith("(", position):
+            end = _skip_balanced(statement, position)
+            if end is None:
+                return None
+            position = end
+
+        keyword = _AS_RE.match(statement, position)
+        if keyword is None:
+            return None
+        position = keyword.end()
+
+        while position < len(statement) and statement[position].isspace():
+            position += 1
+        if not statement.startswith("(", position):
+            return None
+        end = _skip_balanced(statement, position)
+        if end is None:
+            return None
+        position = end
+
+        while position < len(statement) and statement[position].isspace():
+            position += 1
+        if statement.startswith(",", position):
+            position += 1
+            continue
+        return statement[position:]
+
+
 def is_read_only(statement: str) -> bool:
     """Return whether a single statement only reads.
 
-    This is a guard against reaching for the wrong service, not a security
-    boundary. A SELECT can still write through INTO OUTFILE or a stored
-    function with side effects, and MySQL 8 accepts a CTE in front of an
-    UPDATE or a DELETE. Read-only rights on the database user are what
-    actually stops a write.
+    A statement counts as reading when it starts with a keyword that never
+    changes anything, and:
+
+    - for WITH, the statement behind the CTE list is a SELECT, TABLE or
+      VALUES. MySQL 8 and MariaDB also accept an UPDATE or a DELETE there, and
+      a list that cannot be read is treated as a write;
+    - it does not write a file on the server (INTO OUTFILE, INTO DUMPFILE),
+      which a SELECT is otherwise allowed to do. What is inside quotes and
+      comments does not count, but the content of an executable comment does.
+
+    This is a guard against reaching for the wrong service. It cannot see what
+    a stored function does, so the integration also runs everything it lets
+    through query inside a read-only transaction, which the server enforces.
     """
     inner, runs = unwrap_prefixes(statement)
 
@@ -217,4 +354,13 @@ def is_read_only(statement: str) -> bool:
     if not runs:
         return True
 
-    return first_keyword(inner) in READ_ONLY_KEYWORDS
+    text = strip_comments(inner)
+
+    if first_keyword(text) == _WITH_KEYWORD:
+        text = statement_after_ctes(text) or ""
+        if first_keyword(text) not in _CTE_READ_ONLY_KEYWORDS:
+            return False
+    elif first_keyword(text) not in READ_ONLY_KEYWORDS:
+        return False
+
+    return _INTO_FILE_RE.search(_mask_quoted(text)) is None

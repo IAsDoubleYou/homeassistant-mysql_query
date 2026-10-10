@@ -172,3 +172,93 @@ def test_prefix_is_classified_by_what_it_wraps(statement: str, expected: bool) -
 def test_unwrap_prefixes(statement: str, inner: str, runs: bool) -> None:
     """The prefix and its options are peeled off, the statement stays."""
     assert unwrap_prefixes(statement) == (inner, runs)
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        # MySQL 8 and MariaDB accept a write behind a CTE list.
+        "WITH c AS (SELECT 1) DELETE FROM t WHERE id IN (SELECT * FROM c)",
+        "WITH c AS (SELECT id FROM t) UPDATE t JOIN c USING (id) SET x = 1",
+        "with recursive c(n) as (select 1) delete from t",
+        "WITH a AS (SELECT 1), b AS (SELECT 2) UPDATE t SET x = 1",
+        "WITH `my cte` (x) AS (SELECT ')') DELETE FROM t",
+        "WITH c AS (SELECT 1) /* note */ DELETE FROM t",
+        "WITH c AS (SELECT 1) -- note\nDELETE FROM t",
+        "ANALYZE WITH c AS (SELECT 1) DELETE FROM t",
+        # A CTE list that cannot be read is never assumed to read.
+        "WITH c AS (SELECT 1)",
+        "WITH c AS SELECT 1 SELECT 1",
+        "WITH c AS (SELECT 1",
+        "WITH",
+        # A SELECT can write a file on the server.
+        "SELECT * FROM t INTO OUTFILE '/tmp/x'",
+        "SELECT * FROM t INTO DUMPFILE '/tmp/x'",
+        "select * from t into   outfile '/tmp/x'",
+        "SELECT * FROM t INTO /* gap */ OUTFILE '/tmp/x'",
+        "TABLE t INTO OUTFILE '/tmp/x'",
+        "WITH c AS (SELECT 1) SELECT * FROM c INTO OUTFILE '/tmp/x'",
+        "SELECT * FROM (SELECT 1) AS d INTO OUTFILE '/tmp/x'",
+        # The server runs what an executable comment holds.
+        "SELECT 1 /*! INTO OUTFILE '/tmp/x' */",
+        "SELECT 1 /*!50000 INTO OUTFILE '/tmp/x' */",
+        "SELECT 1 /*M!100000 INTO DUMPFILE '/tmp/x' */",
+        "/*! DELETE FROM t */",
+    ],
+)
+def test_a_write_does_not_pass_as_reading(statement: str) -> None:
+    """Statements that write behind a read-looking start are not reading.
+
+    Each of these starts like something harmless, or hides the part that
+    writes, and would reach the database through query if only the first
+    keyword counted.
+    """
+    assert is_read_only(statement) is False
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "WITH c AS (SELECT 1) SELECT * FROM c",
+        (
+            "WITH RECURSIVE c(n) AS "
+            "(SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 3) SELECT * FROM c"
+        ),
+        "WITH a AS (SELECT 1), b AS (SELECT 2) SELECT * FROM a, b",
+        "WITH `my cte` (x) AS (SELECT ')') SELECT * FROM `my cte`",
+        "WITH c AS (SELECT 1) (SELECT * FROM c)",
+        "WITH c AS (SELECT 1) TABLE c",
+        "WITH c AS (SELECT 1) VALUES ROW(1)",
+        "WITH c AS (SELECT 1) /* note */ SELECT * FROM c",
+        "EXPLAIN WITH c AS (SELECT 1) DELETE FROM t",
+        # Only text, not a file write.
+        "SELECT 'into outfile' AS x",
+        'SELECT "into dumpfile" AS x',
+        "SELECT `outfile` FROM t",
+        "SELECT * FROM t -- INTO OUTFILE '/tmp/x'",
+        "SELECT * FROM t /* INTO OUTFILE '/tmp/x' */",
+        "SELECT * FROM t WHERE note = 'x INTO OUTFILE y'",
+        # Into a variable is session state, not a write to the database.
+        "SELECT 1 INTO @v",
+        "SELECT /*! 1 */ 2",
+    ],
+)
+def test_reading_stays_reading(statement: str) -> None:
+    """The statements that only read, written in the ways that look risky."""
+    assert is_read_only(statement) is True
+
+
+def test_an_executable_comment_is_read_as_code() -> None:
+    """Its text is kept, so the keyword check sees what the server will run."""
+    assert strip_comments("SELECT 1 /*!50000 , 2 */").split() == [
+        "SELECT",
+        "1",
+        ",",
+        "2",
+    ]
+    assert first_keyword("/*! DELETE FROM t */") == "delete"
+
+
+def test_a_statement_hidden_in_an_executable_comment_counts_as_a_second_one() -> None:
+    """The server splits on a semicolon inside it, so the splitter has to as well."""
+    assert len(split_statements("SELECT 1 /*! ; DELETE FROM t */")) == 2
