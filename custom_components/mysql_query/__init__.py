@@ -573,7 +573,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         SERVICE_EXECUTE,
         handler,
         schema=EXECUTE_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
+        # Optional, unlike query: a write is often just a step in a script, and
+        # a script that does not read what it affected should not have to ask
+        # for a response it throws away. query exists to return rows.
+        supports_response=SupportsResponse.OPTIONAL,
     )
     return True
 

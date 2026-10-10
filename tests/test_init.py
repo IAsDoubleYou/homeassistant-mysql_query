@@ -1076,3 +1076,49 @@ async def test_refusals_raise_even_when_errors_are_reported_in_the_response(
         )
 
     assert err.value.translation_key == "read_via_execute"
+
+
+async def test_execute_runs_without_asking_for_a_response(hass: HomeAssistant) -> None:
+    """A script can call execute for its effect alone.
+
+    The action's response is optional, so the call needs no response_variable.
+    """
+    cursor = _select_cursor(rows=[], columns=["id"])
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_EXECUTE,
+        {ATTR_QUERY: "DELETE FROM test WHERE id = 1"},
+        blocking=True,
+    )
+
+    assert response is None
+    assert cursor.executed == ["DELETE FROM test WHERE id = 1"]
+
+
+async def test_execute_still_returns_a_response_when_asked(
+    hass: HomeAssistant,
+) -> None:
+    """Asking for the response keeps working as before."""
+    await _setup_entry(hass, FakePool(FakeConnection(_select_cursor([], ["id"]))))
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_EXECUTE,
+        {ATTR_QUERY: "DELETE FROM test WHERE id = 1"},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert response["succeeded"] is True
+
+
+async def test_query_still_requires_a_response(hass: HomeAssistant) -> None:
+    """Query exists to return rows, so calling it without asking is an error."""
+    await _setup_entry(hass, FakePool(FakeConnection(_select_cursor([], ["id"]))))
+
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            DOMAIN, SERVICE_QUERY, {ATTR_QUERY: "SELECT 1"}, blocking=True
+        )
