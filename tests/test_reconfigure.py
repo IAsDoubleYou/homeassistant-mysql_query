@@ -279,15 +279,18 @@ async def test_options_flow_saves_the_behaviour_settings(hass: HomeAssistant) ->
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["type"] is FlowResultType.FORM
 
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {
-            CONF_ROW_LIMIT: 250,
-            CONF_QUERY_TIMEOUT: 45,
-            CONF_AUTOCOMMIT: False,
-            CONF_READONLY_CONNECTION: True,
-        },
-    )
+    # The saved options schedule a reload of the entry, which builds a pool.
+    with patch_create_pool(FakePool()):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {
+                CONF_ROW_LIMIT: 250,
+                CONF_QUERY_TIMEOUT: 45,
+                CONF_AUTOCOMMIT: False,
+                CONF_READONLY_CONNECTION: True,
+            },
+        )
+        await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.options == {
@@ -341,9 +344,11 @@ async def test_options_flow_stores_whole_numbers(hass: HomeAssistant) -> None:
     entry = _entry(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
 
-    await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_ROW_LIMIT: 250.0, CONF_QUERY_TIMEOUT: 40.0}
-    )
+    with patch_create_pool(FakePool()):
+        await hass.config_entries.options.async_configure(
+            result["flow_id"], {CONF_ROW_LIMIT: 250.0, CONF_QUERY_TIMEOUT: 40.0}
+        )
+        await hass.async_block_till_done()
 
     assert entry.options[CONF_ROW_LIMIT] == 250
     assert isinstance(entry.options[CONF_ROW_LIMIT], int)
