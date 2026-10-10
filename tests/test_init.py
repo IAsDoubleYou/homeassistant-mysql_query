@@ -13,6 +13,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.setup import async_setup_component
 
 from custom_components.mysql_query.const import (
     ATTR_QUERY,
@@ -875,3 +876,27 @@ async def test_query_reports_in_the_response_when_asked(
     # Still the query shape, not the full execute one.
     assert "rows_affected" not in response
     assert response["result"] == []
+
+
+async def test_yaml_configuration_is_not_imported(hass: HomeAssistant) -> None:
+    """A leftover mysql_query: section is reported, not turned into an entry.
+
+    Connections are config entries only. Importing the section used to run
+    next to Home Assistant's own "YAML is not supported" report for the same
+    section, which sent two different messages for one mistake.
+    """
+    yaml_config = {
+        DOMAIN: {
+            CONF_MYSQL_HOST: "localhost",
+            CONF_MYSQL_PORT: 3306,
+            CONF_MYSQL_USERNAME: "test_user",
+            CONF_MYSQL_PASSWORD: "test_pass",
+            CONF_MYSQL_DB: "test_db",
+        }
+    }
+
+    assert await async_setup_component(hass, DOMAIN, yaml_config)
+    await hass.async_block_till_done()
+
+    assert not hass.config_entries.async_entries(DOMAIN)
+    assert not list(hass.config_entries.flow.async_progress_by_handler(DOMAIN))

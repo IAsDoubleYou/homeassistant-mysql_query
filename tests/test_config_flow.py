@@ -235,68 +235,6 @@ async def test_options_flow_form_is_prefilled_with_current_settings(
     assert defaults[CONF_ROW_LIMIT] == 250
 
 
-async def test_import_flow_creates_entry(hass: HomeAssistant) -> None:
-    """Settings from configuration.yaml become a config entry."""
-    with patch_driver():
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": config_entries.SOURCE_IMPORT},
-            data=dict(USER_INPUT),
-        )
-        await hass.async_block_till_done()
-
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["title"] == "MySQL: localhost/test_db (Imported)"
-    assert result["data"][CONF_MYSQL_DB] == "test_db"
-
-
-async def test_import_flow_adds_the_default_row_limit(hass: HomeAssistant) -> None:
-    """A YAML section without a row limit still gets the default."""
-    with patch_driver():
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": config_entries.SOURCE_IMPORT},
-            data=dict(USER_INPUT),
-        )
-        await hass.async_block_till_done()
-
-    assert result["data"][CONF_ROW_LIMIT] == DEFAULT_ROW_LIMIT
-
-
-async def test_import_flow_keeps_an_explicit_row_limit(hass: HomeAssistant) -> None:
-    """A row limit set in YAML is not overwritten by the default."""
-    with patch_driver():
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": config_entries.SOURCE_IMPORT},
-            data={**USER_INPUT, CONF_ROW_LIMIT: 42},
-        )
-        await hass.async_block_till_done()
-
-    assert result["data"][CONF_ROW_LIMIT] == 42
-
-
-async def test_import_flow_aborts_when_already_configured(
-    hass: HomeAssistant,
-) -> None:
-    """Importing the same host and database twice does not duplicate it."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={**USER_INPUT, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT},
-        unique_id="localhost_test_db",
-    )
-    entry.add_to_hass(hass)
-
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN,
-        context={"source": config_entries.SOURCE_IMPORT},
-        data=dict(USER_INPUT),
-    )
-
-    assert result["type"] is FlowResultType.ABORT
-    assert result["reason"] == "already_configured"
-
-
 async def test_user_flow_invalid_auth(hass: HomeAssistant) -> None:
     """Wrong credentials are reported as such, without the driver message.
 

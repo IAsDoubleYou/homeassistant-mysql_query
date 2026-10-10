@@ -257,29 +257,6 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={"connection": entry.title, "error": detail},
         )
 
-    async def async_step_import(self, import_data: dict[str, Any]) -> ConfigFlowResult:
-        """Handle import from configuration.yaml."""
-        # Add the default limit on import when it is missing
-        if CONF_ROW_LIMIT not in import_data:
-            import_data[CONF_ROW_LIMIT] = DEFAULT_ROW_LIMIT
-
-        unique_id = f"{import_data[CONF_MYSQL_HOST]}_{import_data[CONF_MYSQL_DB]}"
-        await self.async_set_unique_id(unique_id)
-        self._abort_if_unique_id_configured()
-
-        _LOGGER.warning(
-            "Imported mysql_query settings from configuration.yaml. "
-            "IMPORTANT: Please remove the 'mysql_query' section from your "
-            "configuration.yaml and restart Home Assistant to complete the "
-            "migration."
-        )
-
-        title = (
-            f"MySQL: {import_data[CONF_MYSQL_HOST]}/{import_data[CONF_MYSQL_DB]} "
-            "(Imported)"
-        )
-        return self.async_create_entry(title=title, data=import_data)
-
     @staticmethod
     @callback
     def async_get_options_flow(

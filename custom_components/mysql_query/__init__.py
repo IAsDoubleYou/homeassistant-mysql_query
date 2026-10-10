@@ -523,15 +523,12 @@ async def _async_open_pool(entry: ConfigEntry) -> aiomysql.Pool:
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up the mysql_query component from YAML (Legacy/Import)."""
-    if DOMAIN in config:
-        hass.async_create_task(
-            hass.config_entries.flow.async_init(
-                DOMAIN,
-                context={"source": "import"},
-                data=config[DOMAIN],
-            )
-        )
+    """Set up the integration.
+
+    There is no YAML configuration: connections are config entries. The schema
+    above makes Home Assistant report a leftover mysql_query: section instead
+    of importing it.
+    """
     return True
 
 
