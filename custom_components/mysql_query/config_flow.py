@@ -12,6 +12,11 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import callback
+from homeassistant.helpers.selector import (
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
 
 from .const import (
     CONF_AUTOCOMMIT,
@@ -93,12 +98,37 @@ async def _async_validate(config: dict[str, Any]) -> tuple[str | None, str]:
     return None, ""
 
 
-def get_schema(defaults: dict[str, Any]) -> vol.Schema:
+# A masked input. Never given a default, so the stored password is not sent to
+# the browser: a default would put it in the form definition, readable in the
+# page source and in the network traffic.
+PASSWORD_SELECTOR = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
+
+
+def keep_stored_password(
+    user_input: dict[str, Any], stored: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Return the input with the stored password filled in when it was left empty.
+
+    The edit forms do not show the password, so an untouched field means "keep
+    it" and not "set it to nothing".
+    """
+    if user_input.get(CONF_MYSQL_PASSWORD):
+        return user_input
+    return {**user_input, CONF_MYSQL_PASSWORD: stored.get(CONF_MYSQL_PASSWORD, "")}
+
+
+def get_schema(defaults: dict[str, Any], *, editing: bool = False) -> vol.Schema:
     """Return the schema with provided default values.
 
     This schema is used for both initial setup and the options flow (re-configuration),
-    ensuring all fields remain editable.
+    ensuring all fields remain editable. Editing makes the password optional,
+    because the stored one is not shown and stays when the field is left empty.
     """
+    password_field = (
+        vol.Optional(CONF_MYSQL_PASSWORD, default="")
+        if editing
+        else vol.Required(CONF_MYSQL_PASSWORD)
+    )
     return vol.Schema(
         {
             vol.Required(
@@ -111,9 +141,7 @@ def get_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_MYSQL_USERNAME, default=defaults.get(CONF_MYSQL_USERNAME, "")
             ): str,
-            vol.Required(
-                CONF_MYSQL_PASSWORD, default=defaults.get(CONF_MYSQL_PASSWORD, "")
-            ): str,
+            password_field: PASSWORD_SELECTOR,
             vol.Required(CONF_MYSQL_DB, default=defaults.get(CONF_MYSQL_DB, "")): str,
             vol.Optional(
                 CONF_MYSQL_TIMEOUT,
@@ -222,7 +250,7 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_MYSQL_USERNAME,
                         default=current.get(CONF_MYSQL_USERNAME, ""),
                     ): str,
-                    vol.Required(CONF_MYSQL_PASSWORD): str,
+                    vol.Required(CONF_MYSQL_PASSWORD): PASSWORD_SELECTOR,
                 }
             ),
             errors=errors,
@@ -283,6 +311,7 @@ class MySQLQueryOptionsFlow(config_entries.OptionsFlow):
             # Verified before saving: settings that cannot reach the database
             # would otherwise be stored, after which the reload fails and the
             # reason is only visible in the log.
+            user_input = keep_stored_password(user_input, self.config_entry.data)
             error, detail = await _async_validate(user_input)
             if error is None:
                 self.hass.config_entries.async_update_entry(
@@ -295,7 +324,7 @@ class MySQLQueryOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="init",
-            data_schema=get_schema(current_settings),
+            data_schema=get_schema(current_settings, editing=True),
             errors=errors,
             description_placeholders={"error": detail},
         )

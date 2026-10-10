@@ -41,6 +41,15 @@ USER_INPUT = {
 }
 
 
+def _form_defaults(result: dict) -> dict:
+    """Return the default of every form field that has one."""
+    return {
+        key.schema: key.default()
+        for key in result["data_schema"].schema
+        if key.default is not vol.UNDEFINED
+    }
+
+
 @contextmanager
 def patch_driver(**connect_kwargs) -> Iterator[AsyncMock]:
     """Patch the connection test of the flow and the pool of the entry setup.
@@ -220,7 +229,7 @@ async def test_options_flow_form_is_prefilled_with_current_settings(
     result = await hass.config_entries.options.async_init(entry.entry_id)
 
     assert result["type"] is FlowResultType.FORM
-    defaults = {key.schema: key.default() for key in result["data_schema"].schema}
+    defaults = _form_defaults(result)
     assert defaults[CONF_MYSQL_DB] == "current_db"
     assert defaults[CONF_MYSQL_HOST] == USER_INPUT[CONF_MYSQL_HOST]
     assert defaults[CONF_ROW_LIMIT] == 250
@@ -429,7 +438,7 @@ async def test_options_flow_keeps_the_submitted_values_on_the_form(
             result["flow_id"], {**USER_INPUT, CONF_MYSQL_HOST: "typo.local"}
         )
 
-    defaults = {key.schema: key.default() for key in result["data_schema"].schema}
+    defaults = _form_defaults(result)
     assert defaults[CONF_MYSQL_HOST] == "typo.local"
     assert "Connection refused" in result["description_placeholders"]["error"]
 
@@ -506,7 +515,7 @@ async def test_user_flow_defaults_tls_to_off(hass: HomeAssistant) -> None:
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
         )
-        defaults = {key.schema: key.default() for key in result["data_schema"].schema}
+        defaults = _form_defaults(result)
         assert defaults[CONF_USE_TLS] is False
 
         result = await hass.config_entries.flow.async_configure(
@@ -562,7 +571,7 @@ async def test_user_flow_defaults_readonly_to_off(hass: HomeAssistant) -> None:
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
         )
-        defaults = {key.schema: key.default() for key in result["data_schema"].schema}
+        defaults = _form_defaults(result)
         assert defaults[CONF_READONLY_CONNECTION] is False
 
         result = await hass.config_entries.flow.async_configure(
@@ -685,3 +694,66 @@ async def test_reauth_flow_reports_credentials_that_are_still_refused(
     assert result["step_id"] == "reauth_confirm"
     assert result["errors"] == {"base": "invalid_auth"}
     assert entry.data[CONF_MYSQL_PASSWORD] == "test_pass"
+
+
+async def test_user_form_has_no_password_default(hass: HomeAssistant) -> None:
+    """The setup form asks for the password and prefills nothing."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    assert CONF_MYSQL_PASSWORD not in _form_defaults(result)
+
+
+async def test_options_form_never_contains_the_stored_password(
+    hass: HomeAssistant,
+) -> None:
+    """The stored password is not sent to the browser, not even as a default."""
+    entry = MockConfigEntry(domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: 10})
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    assert CONF_MYSQL_PASSWORD in _form_defaults(result)  # present, and empty
+    assert _form_defaults(result)[CONF_MYSQL_PASSWORD] == ""
+    assert "test_pass" not in repr(result["data_schema"].schema)
+
+
+async def test_options_flow_keeps_the_stored_password_when_left_empty(
+    hass: HomeAssistant,
+) -> None:
+    """An empty password field means keep the current one."""
+    entry = MockConfigEntry(domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: 10})
+    entry.add_to_hass(hass)
+
+    with patch_driver() as mock_connect:
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {**USER_INPUT, CONF_MYSQL_PASSWORD: "", CONF_ROW_LIMIT: 20},
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.data[CONF_MYSQL_PASSWORD] == "test_pass"
+    assert entry.data[CONF_ROW_LIMIT] == 20
+    # The kept password is also the one the connection was tried with.
+    assert mock_connect.await_args.kwargs["password"] == "test_pass"
+
+
+async def test_options_flow_replaces_the_password_when_one_is_given(
+    hass: HomeAssistant,
+) -> None:
+    """A filled-in password field replaces the stored one."""
+    entry = MockConfigEntry(domain=DOMAIN, data={**USER_INPUT, CONF_ROW_LIMIT: 10})
+    entry.add_to_hass(hass)
+
+    with patch_driver():
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {**USER_INPUT, CONF_MYSQL_PASSWORD: "new_pass", CONF_ROW_LIMIT: 10},
+        )
+        await hass.async_block_till_done()
+
+    assert entry.data[CONF_MYSQL_PASSWORD] == "new_pass"
