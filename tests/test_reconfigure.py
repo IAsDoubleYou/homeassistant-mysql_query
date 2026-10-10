@@ -5,9 +5,10 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 from aiomysql import Error as MySQLError
+import pytest
 
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.data_entry_flow import FlowResultType, InvalidData
 
 from custom_components.mysql_query.const import (
     CONF_AUTOCOMMIT,
@@ -18,7 +19,6 @@ from custom_components.mysql_query.const import (
     CONF_READONLY_CONNECTION,
     CONF_ROW_LIMIT,
     CONF_USE_TLS,
-    DEFAULT_ROW_LIMIT,
     DOMAIN,
     SERVICE_QUERY,
 )
@@ -324,18 +324,30 @@ async def test_options_flow_form_is_prefilled_with_current_options(
     assert _form_defaults(result)[CONF_ROW_LIMIT] == 500
 
 
-async def test_options_flow_invalid_row_limit_falls_back_to_default(
-    hass: HomeAssistant,
-) -> None:
-    """A row limit below one is replaced by the default before saving."""
+async def test_options_flow_rejects_numbers_below_one(hass: HomeAssistant) -> None:
+    """A row limit or a timeout below one would break every call."""
     entry = _entry(hass)
-
     result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    for field in (CONF_ROW_LIMIT, CONF_QUERY_TIMEOUT):
+        with pytest.raises(InvalidData):
+            await hass.config_entries.options.async_configure(
+                result["flow_id"], {field: 0}
+            )
+
+
+async def test_options_flow_stores_whole_numbers(hass: HomeAssistant) -> None:
+    """The selector answers with floats; the options keep ints."""
+    entry = _entry(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
     await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_ROW_LIMIT: 0}
+        result["flow_id"], {CONF_ROW_LIMIT: 250.0, CONF_QUERY_TIMEOUT: 40.0}
     )
 
-    assert entry.options[CONF_ROW_LIMIT] == DEFAULT_ROW_LIMIT
+    assert entry.options[CONF_ROW_LIMIT] == 250
+    assert isinstance(entry.options[CONF_ROW_LIMIT], int)
+    assert isinstance(entry.options[CONF_QUERY_TIMEOUT], int)
 
 
 async def test_options_flow_reloads_the_entry(hass: HomeAssistant) -> None:

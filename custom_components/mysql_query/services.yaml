@@ -1,99 +1,78 @@
 query:
-  name: Query
-  description: >
-    Runs a statement that only reads - SELECT, WITH, SHOW, DESCRIBE,
-    EXPLAIN and the like - and returns the rows together with the metadata
-    about the result. Refuses anything that changes data or schema; use the
-    Execute action for that.
+  name: "Query"
+  description: "Runs a statement that only reads - SELECT, WITH, SHOW, DESCRIBE, EXPLAIN and the like - and returns the rows together with the metadata about the result. Refuses anything that changes data or schema; use Execute for that."
   fields:
     query:
-      name: Query
-      description: The SQL query to execute.
+      name: "Query"
+      description: "The SQL query to execute."
       required: true
       example: "SELECT * FROM states WHERE entity_id = %s LIMIT 10"
       selector:
         text:
           multiline: true
     values:
-      name: Values
-      description: >
-        Optional list of values for the %s placeholders in the query, in the
-        order the placeholders appear. Templates are rendered with their native
-        type, so numbers, booleans and none stay an int, float, bool or NULL.
+      name: "Values"
+      description: "Optional list of values for the %s placeholders in the query, in the order the placeholders appear. Templates are rendered with their native type, so numbers, booleans and none stay an int, float, bool or NULL."
       required: false
       example: '["sensor.temperature", 10]'
       selector:
         object:
     db4query:
-      name: Database Override
-      description: Optionally specify a different database name for this query.
+      name: "Database override"
+      description: "Optionally override the database name for this specific query."
       required: false
       selector:
         text:
     config_entry:
-      name: Connection
-      description: Choose which saved connection to use.
+      name: "Connection"
+      description: "The database connection to run this query on. If left empty, the first loaded connection is used."
       required: false
       selector:
         config_entry:
           integration: mysql_query
     raise_on_error:
-      name: Raise on error
-      description: >
-        Stop the caller with an error when the statement fails, instead of
-        reporting it in the response as succeeded false. On by default for
-        this action; switch it off to get the behaviour the Execute action
-        has.
+      name: "Raise on error"
+      description: "Stop the caller with an error when the statement fails, instead of reporting it in the response as succeeded false. On by default for this action; switch it off to get the behaviour Execute has."
       required: false
       default: true
       selector:
         boolean:
 
 execute:
-  name: Execute
-  description: >
-    Runs a statement that changes something (INSERT, UPDATE, DELETE, DDL,
-    and maintenance statements such as ANALYZE or OPTIMIZE) and returns what
-    it affected. Refuses a statement that only reads; use the Query action
-    for that.
+  name: "Execute"
+  description: "Runs a statement that changes something (INSERT, UPDATE, DELETE, DDL, and maintenance statements such as ANALYZE or OPTIMIZE) and returns what it affected. Refuses a statement that only reads; use Query for that."
   fields:
     query:
-      name: Query
-      description: The SQL query to execute.
+      name: "Query"
+      description: "The SQL query to execute."
       required: true
       example: "UPDATE users SET status = %s WHERE id = %s"
       selector:
         text:
           multiline: true
     values:
-      name: Values
-      description: >
-        Optional list of values for the %s placeholders in the query, in the
-        order the placeholders appear. Templates are rendered with their native
-        type, so numbers, booleans and none stay an int, float, bool or NULL.
+      name: "Values"
+      description: "Optional list of values for the %s placeholders in the query, in the order the placeholders appear. Templates are rendered with their native type, so numbers, booleans and none stay an int, float, bool or NULL."
       required: false
       example: '["active", 1]'
       selector:
         object:
     db4query:
-      name: Database Override
-      description: Optionally specify a different database name for this query.
+      name: "Database override"
+      description: "Optionally override the database name for this specific query."
       required: false
       selector:
         text:
     config_entry:
-      name: Connection
-      description: Choose which saved connection to use.
+      name: "Connection"
+      description: "The database connection to run this query on. If left empty, the first loaded connection is used."
       required: false
       selector:
         config_entry:
           integration: mysql_query
     raise_on_error:
-      name: Raise on error
-      description: >
-        Stop the caller with an error when the statement fails, instead of
-        reporting it in the response as succeeded false. Off by default for
-        this action; switch it on to get the behaviour the Query action has.
+      name: "Raise on error"
+      description: "Stop the caller with an error when the statement fails, instead of reporting it in the response as succeeded false. Off by default for this action; switch it on to get the behaviour Query has."
       required: false
       default: false
       selector:

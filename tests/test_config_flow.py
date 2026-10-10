@@ -13,7 +13,7 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.data_entry_flow import FlowResultType, InvalidData
 
 from custom_components.mysql_query.const import (
     CONF_MYSQL_DB,
@@ -22,6 +22,7 @@ from custom_components.mysql_query.const import (
     CONF_MYSQL_PORT,
     CONF_MYSQL_TIMEOUT,
     CONF_MYSQL_USERNAME,
+    CONF_QUERY_TIMEOUT,
     CONF_READONLY_CONNECTION,
     CONF_ROW_LIMIT,
     CONF_USE_TLS,
@@ -145,20 +146,64 @@ async def test_user_flow_unknown_error(hass: HomeAssistant) -> None:
     assert result["errors"] == {"base": "unknown"}
 
 
-async def test_user_flow_invalid_row_limit_falls_back_to_default(
-    hass: HomeAssistant,
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        (CONF_MYSQL_PORT, 0),
+        (CONF_MYSQL_PORT, 65536),
+        (CONF_MYSQL_TIMEOUT, 0),
+        (CONF_QUERY_TIMEOUT, 0),
+        (CONF_ROW_LIMIT, 0),
+    ],
+)
+async def test_user_flow_rejects_numbers_outside_their_range(
+    hass: HomeAssistant, field: str, value: int
 ) -> None:
-    """An invalid row limit is replaced by the default before saving."""
+    """The bounds of the number fields are enforced, not only drawn on screen.
+
+    A port outside 1-65535 does not exist, and a timeout or a row limit below
+    one would make every call fail or return nothing.
+    """
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    with pytest.raises(InvalidData):
+        await hass.config_entries.flow.async_configure(
+            result["flow_id"], {**USER_INPUT, field: value}
+        )
+
+
+async def test_user_flow_stores_whole_numbers(hass: HomeAssistant) -> None:
+    """A number selector answers with floats; the entry keeps ints.
+
+    3306.0 would end up in a connection argument and in the stored settings.
+    """
     with patch_driver():
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
         )
         result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {**USER_INPUT, CONF_ROW_LIMIT: 0}
+            result["flow_id"],
+            {
+                **USER_INPUT,
+                CONF_MYSQL_PORT: 3307.0,
+                CONF_MYSQL_TIMEOUT: 12.0,
+                CONF_QUERY_TIMEOUT: 40.0,
+                CONF_ROW_LIMIT: 250.0,
+            },
         )
+        await hass.async_block_till_done()
 
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["options"][CONF_ROW_LIMIT] == DEFAULT_ROW_LIMIT
+    for value in (
+        result["data"][CONF_MYSQL_PORT],
+        result["data"][CONF_MYSQL_TIMEOUT],
+        result["options"][CONF_QUERY_TIMEOUT],
+        result["options"][CONF_ROW_LIMIT],
+    ):
+        assert isinstance(value, int)
+    assert result["data"][CONF_MYSQL_PORT] == 3307
+    assert result["options"][CONF_ROW_LIMIT] == 250
 
 
 async def test_user_flow_invalid_auth(hass: HomeAssistant) -> None:

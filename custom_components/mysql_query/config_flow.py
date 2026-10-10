@@ -13,6 +13,9 @@ from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
@@ -107,6 +110,43 @@ async def _async_validate(config: dict[str, Any]) -> tuple[str | None, str]:
 PASSWORD_SELECTOR = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
 
 
+def _whole_number(minimum: int, maximum: int | None = None) -> NumberSelector:
+    """Return a box for a whole number from ``minimum`` on, up to ``maximum``.
+
+    The bounds are the ones the code needs to work: a port outside 1-65535 does
+    not exist, and a timeout or a limit below one would make every call fail
+    or return nothing. The selector hands back a float, so whatever is saved is
+    turned into an int first (see _as_whole_numbers).
+    """
+    # Left out rather than set to None when there is no upper bound: the
+    # selector rejects a max that is present but empty.
+    bounds = {"min": minimum} | ({"max": maximum} if maximum is not None else {})
+    return NumberSelector(
+        NumberSelectorConfig(**bounds, step=1, mode=NumberSelectorMode.BOX)
+    )
+
+
+PORT_SELECTOR = _whole_number(1, 65535)
+SECONDS_SELECTOR = _whole_number(1)
+ROW_LIMIT_SELECTOR = _whole_number(1)
+
+# The settings a NumberSelector fills in.
+_NUMBER_KEYS = (
+    CONF_MYSQL_PORT,
+    CONF_MYSQL_TIMEOUT,
+    CONF_QUERY_TIMEOUT,
+    CONF_ROW_LIMIT,
+)
+
+
+def _as_whole_numbers(settings: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the settings with the numbers a selector gave as floats as ints."""
+    return {
+        key: int(value) if key in _NUMBER_KEYS and value is not None else value
+        for key, value in settings.items()
+    }
+
+
 def keep_stored_password(
     user_input: dict[str, Any], stored: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -142,7 +182,7 @@ def get_connection_schema(
             vol.Required(
                 CONF_MYSQL_PORT,
                 default=defaults.get(CONF_MYSQL_PORT, DEFAULT_MYSQL_PORT),
-            ): int,
+            ): PORT_SELECTOR,
             vol.Required(
                 CONF_MYSQL_USERNAME, default=defaults.get(CONF_MYSQL_USERNAME, "")
             ): str,
@@ -151,7 +191,7 @@ def get_connection_schema(
             vol.Optional(
                 CONF_MYSQL_TIMEOUT,
                 default=defaults.get(CONF_MYSQL_TIMEOUT, DEFAULT_MYSQL_TIMEOUT),
-            ): int,
+            ): SECONDS_SELECTOR,
             vol.Optional(
                 CONF_MYSQL_CHARSET, default=defaults.get(CONF_MYSQL_CHARSET, "")
             ): str,
@@ -176,10 +216,10 @@ def get_options_schema(defaults: Mapping[str, Any]) -> vol.Schema:
             vol.Optional(
                 CONF_QUERY_TIMEOUT,
                 default=defaults.get(CONF_QUERY_TIMEOUT, DEFAULT_QUERY_TIMEOUT),
-            ): int,
+            ): SECONDS_SELECTOR,
             vol.Optional(
                 CONF_ROW_LIMIT, default=defaults.get(CONF_ROW_LIMIT, DEFAULT_ROW_LIMIT)
-            ): int,
+            ): ROW_LIMIT_SELECTOR,
             vol.Optional(
                 CONF_AUTOCOMMIT,
                 default=defaults.get(CONF_AUTOCOMMIT, DEFAULT_MYSQL_AUTOCOMMIT),
@@ -206,13 +246,6 @@ def split_settings(
     data = {k: v for k, v in settings.items() if k not in OPTION_KEYS}
     options = {k: v for k, v in settings.items() if k in OPTION_KEYS}
     return data, options
-
-
-def _with_valid_row_limit(settings: dict[str, Any]) -> dict[str, Any]:
-    """Fall back to the default limit when the field is empty or invalid."""
-    if not settings.get(CONF_ROW_LIMIT) or settings[CONF_ROW_LIMIT] < 1:
-        return {**settings, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT}
-    return settings
 
 
 def _unique_id(config: Mapping[str, Any]) -> str:
@@ -243,7 +276,7 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         detail = ""
 
         if user_input is not None:
-            user_input = _with_valid_row_limit(user_input)
+            user_input = _as_whole_numbers(user_input)
 
             error, detail = await _async_validate(user_input)
             if error is None:
@@ -272,7 +305,7 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         detail = ""
 
         if user_input is not None:
-            user_input = keep_stored_password(user_input, entry.data)
+            user_input = keep_stored_password(_as_whole_numbers(user_input), entry.data)
             candidate = {**entry.data, **user_input}
 
             # The options take part, because autocommit is a connection argument.
@@ -373,7 +406,7 @@ class MySQLQueryOptionsFlow(config_entries.OptionsFlowWithReload):
     ) -> ConfigFlowResult:
         """Manage the settings via the Configure button."""
         if user_input is not None:
-            return self.async_create_entry(data=_with_valid_row_limit(user_input))
+            return self.async_create_entry(data=_as_whole_numbers(user_input))
 
         return self.async_show_form(
             step_id="init",

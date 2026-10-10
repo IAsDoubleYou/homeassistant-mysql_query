@@ -62,7 +62,6 @@
         },
         "abort": {
             "already_configured": "This connection is already configured.",
-            "cannot_connect": "Failed to connect during import.",
             "reauth_successful": "The credentials were updated.",
             "reconfigure_successful": "The connection was updated."
         }
@@ -142,15 +141,15 @@
                 },
                 "values": {
                     "name": "Values",
-                    "description": "Optional list of values for the %s placeholders in the query, in the order the placeholders appear. Templates are rendered with their native type."
+                    "description": "Optional list of values for the %s placeholders in the query, in the order the placeholders appear. Templates are rendered with their native type, so numbers, booleans and none stay an int, float, bool or NULL."
                 },
                 "db4query": {
-                    "name": "Database for query",
+                    "name": "Database override",
                     "description": "Optionally override the database name for this specific query."
                 },
                 "config_entry": {
                     "name": "Connection",
-                    "description": "The database connection to run this query on. If left empty, the default instance will be used."
+                    "description": "The database connection to run this query on. If left empty, the first loaded connection is used."
                 },
                 "raise_on_error": {
                     "name": "Raise on error",
@@ -168,15 +167,15 @@
                 },
                 "values": {
                     "name": "Values",
-                    "description": "Optional list of values for the %s placeholders in the query, in the order the placeholders appear. Templates are rendered with their native type."
+                    "description": "Optional list of values for the %s placeholders in the query, in the order the placeholders appear. Templates are rendered with their native type, so numbers, booleans and none stay an int, float, bool or NULL."
                 },
                 "db4query": {
-                    "name": "Database for query",
+                    "name": "Database override",
                     "description": "Optionally override the database name for this specific query."
                 },
                 "config_entry": {
                     "name": "Connection",
-                    "description": "The database connection to run this query on."
+                    "description": "The database connection to run this query on. If left empty, the first loaded connection is used."
                 },
                 "raise_on_error": {
                     "name": "Raise on error",

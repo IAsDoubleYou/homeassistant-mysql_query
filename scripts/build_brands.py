@@ -1,6 +1,6 @@
 """Build the Home Assistant brand images from the raw artwork.
 
-Sources (repository root): icon_raw.jpeg, logo_raw.jpeg
+Sources (scripts/brand_sources/): icon_raw.jpeg, logo_raw.jpeg
 
 Outputs go to custom_components/mysql_query/brand/, which Home Assistant 2026.3+ reads
 directly; local brand images take priority over the brands CDN. Sizes follow the
@@ -21,6 +21,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 REPO = Path(__file__).resolve().parent.parent
+SOURCE_DIR = REPO / "scripts" / "brand_sources"
 BRAND_DIR = REPO / "custom_components" / "mysql_query" / "brand"
 
 # Alpha ramp over the max colour channel: transparent at/below LO, opaque at/above HI.
@@ -263,14 +264,16 @@ def save(img: Image.Image, name: str) -> None:
 
 
 print("icon_raw.jpeg -> icon.png, icon@2x.png")
-icon_art = drop_enclosed_background(trim(key_black(REPO / "icon_raw.jpeg")))
+icon_art = drop_enclosed_background(trim(key_black(SOURCE_DIR / "icon_raw.jpeg")))
 save(fit_center(icon_art, 256, 256), "icon.png")
 save(fit_center(icon_art, 512, 512), "icon@2x.png")
 
 print("logo_raw.jpeg -> logo.png, logo@2x.png")
 # Trim the mark out first: the pocket threshold is relative to the artwork it belongs to.
 mark_art = trim(
-    drop_enclosed_background(split_off_mark(trim(key_black(REPO / "logo_raw.jpeg"))))
+    drop_enclosed_background(
+        split_off_mark(trim(key_black(SOURCE_DIR / "logo_raw.jpeg")))
+    )
 )
 save(build_logo(mark_art, 256, 64), "logo.png")
 save(build_logo(mark_art, 512, 128), "logo@2x.png")

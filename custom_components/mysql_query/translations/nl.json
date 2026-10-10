@@ -62,7 +62,6 @@
         },
         "abort": {
             "already_configured": "Deze verbinding is al geconfigureerd.",
-            "cannot_connect": "Verbinden tijdens het importeren is mislukt.",
             "reauth_successful": "De inloggegevens zijn bijgewerkt.",
             "reconfigure_successful": "De verbinding is bijgewerkt."
         }
@@ -142,15 +141,15 @@
                 },
                 "values": {
                     "name": "Waarden",
-                    "description": "Optionele lijst met waarden voor de %s-plaatshouders in de query, in de volgorde waarin de plaatshouders voorkomen. Templates behouden hun eigen datatype."
+                    "description": "Optionele lijst met waarden voor de %s-plaatshouders in de query, in de volgorde waarin de plaatshouders voorkomen. Templates worden met hun eigen datatype gerenderd, dus getallen, booleans en none blijven een int, float, bool of NULL."
                 },
                 "db4query": {
-                    "name": "Database voor query",
+                    "name": "Database overschrijven",
                     "description": "Overschrijf optioneel de databasenaam voor deze specifieke query."
                 },
                 "config_entry": {
                     "name": "Verbinding",
-                    "description": "De databaseverbinding waarop deze query wordt uitgevoerd. Laat leeg om de standaardinstantie te gebruiken."
+                    "description": "De databaseverbinding waarop deze query wordt uitgevoerd. Laat leeg om de eerste geladen verbinding te gebruiken."
                 },
                 "raise_on_error": {
                     "name": "Fout opwerpen",
@@ -168,15 +167,15 @@
                 },
                 "values": {
                     "name": "Waarden",
-                    "description": "Optionele lijst met waarden voor de %s-plaatshouders in de query, in de volgorde waarin de plaatshouders voorkomen. Templates behouden hun eigen datatype."
+                    "description": "Optionele lijst met waarden voor de %s-plaatshouders in de query, in de volgorde waarin de plaatshouders voorkomen. Templates worden met hun eigen datatype gerenderd, dus getallen, booleans en none blijven een int, float, bool of NULL."
                 },
                 "db4query": {
-                    "name": "Database voor query",
+                    "name": "Database overschrijven",
                     "description": "Overschrijf optioneel de databasenaam voor deze specifieke query."
                 },
                 "config_entry": {
                     "name": "Verbinding",
-                    "description": "De databaseverbinding waarop deze query wordt uitgevoerd."
+                    "description": "De databaseverbinding waarop deze query wordt uitgevoerd. Laat leeg om de eerste geladen verbinding te gebruiken."
                 },
                 "raise_on_error": {
                     "name": "Fout opwerpen",
