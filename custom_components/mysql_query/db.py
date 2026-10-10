@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 import logging
 import re
-import ssl
 from typing import Any
 
 import aiomysql
+
+from homeassistant.util.ssl import client_context_no_verify
 
 from .const import (
     CONF_AUTOCOMMIT,
@@ -46,22 +47,6 @@ class TLSUnavailableError(Exception):
 def tls_requested(config: Mapping[str, Any]) -> bool:
     """Return whether this connection is configured to use TLS."""
     return bool(config.get(CONF_USE_TLS, DEFAULT_USE_TLS))
-
-
-def _tls_context() -> ssl.SSLContext:
-    """Return the TLS context used for an encrypted connection.
-
-    The server certificate is deliberately not checked. A database on a home
-    network nearly always carries a self signed certificate, and demanding a
-    verifiable one would make the option unusable for most setups. This
-    encrypts the traffic, which keeps it from being read off the network; it
-    does not prove the server is the one it claims to be, so a man in the
-    middle presenting its own certificate is not covered.
-    """
-    context = ssl.create_default_context()
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
-    return context
 
 
 async def async_verify_tls(conn: aiomysql.Connection) -> None:
@@ -119,8 +104,20 @@ def build_connection_kwargs(config: Mapping[str, Any]) -> dict[str, Any]:
 
     # Left out entirely when TLS is off, which is what keeps aiomysql from
     # offering it: it only runs the handshake when a context is present.
+    #
+    # The server certificate is deliberately not checked. A database on a home
+    # network nearly always carries a self signed certificate, and demanding a
+    # verifiable one would make the option unusable for most setups. This
+    # encrypts the traffic, which keeps it from being read off the network; it
+    # does not prove the server is the one it claims to be, so a man in the
+    # middle presenting its own certificate is not covered.
+    #
+    # The context comes from Home Assistant, which builds it once and caches it.
+    # Building one here would load the CA bundle from disk, and this function
+    # runs on the event loop. The cached context is shared, so it must not be
+    # modified.
     if tls_requested(config):
-        kwargs["ssl"] = _tls_context()
+        kwargs["ssl"] = client_context_no_verify()
 
     return kwargs
 

@@ -182,6 +182,21 @@ def test_tls_builds_an_unverified_context() -> None:
     assert context.verify_mode is ssl.CERT_NONE
 
 
+def test_tls_context_is_built_without_touching_the_disk() -> None:
+    """The context is Home Assistant's cached one, not a freshly built one.
+
+    ssl.create_default_context() loads the CA bundle from disk, which Home
+    Assistant reports as blocking I/O when it happens on the event loop, and
+    build_connection_kwargs runs there.
+    """
+    with patch("ssl.create_default_context") as create_default_context:
+        first = build_connection_kwargs({**BASE_CONFIG, CONF_USE_TLS: True})["ssl"]
+        second = build_connection_kwargs({**BASE_CONFIG, CONF_USE_TLS: True})["ssl"]
+
+    create_default_context.assert_not_called()
+    assert first is second
+
+
 async def test_verify_tls_accepts_an_encrypted_session() -> None:
     """A session reporting a cipher passes the check."""
     conn = _TLSConnection(("Ssl_cipher", "TLS_AES_256_GCM_SHA384"))
