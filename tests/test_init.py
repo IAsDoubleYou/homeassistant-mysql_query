@@ -11,9 +11,14 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 import voluptuous as vol
 
+from homeassistant.auth.models import User
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.core import Context, HomeAssistant
+from homeassistant.exceptions import (
+    HomeAssistantError,
+    ServiceValidationError,
+    Unauthorized,
+)
 from homeassistant.setup import async_setup_component
 
 from custom_components.mysql_query.const import (
@@ -1122,3 +1127,74 @@ async def test_query_still_requires_a_response(hass: HomeAssistant) -> None:
         await hass.services.async_call(
             DOMAIN, SERVICE_QUERY, {ATTR_QUERY: "SELECT 1"}, blocking=True
         )
+
+
+async def test_execute_is_refused_for_a_user_who_is_not_an_admin(
+    hass: HomeAssistant, hass_read_only_user: User
+) -> None:
+    """A write needs an administrator when it is made on behalf of a user."""
+    cursor = _select_cursor(rows=[], columns=["id"])
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    with pytest.raises(Unauthorized):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_EXECUTE,
+            {ATTR_QUERY: "DELETE FROM test"},
+            blocking=True,
+            context=Context(user_id=hass_read_only_user.id),
+        )
+
+    assert cursor.executed == []
+
+
+async def test_execute_is_allowed_for_an_admin(
+    hass: HomeAssistant, hass_admin_user: User
+) -> None:
+    """An administrator can still write, and still gets the response."""
+    cursor = _select_cursor(rows=[], columns=["id"])
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_EXECUTE,
+        {ATTR_QUERY: "DELETE FROM test"},
+        blocking=True,
+        return_response=True,
+        context=Context(user_id=hass_admin_user.id),
+    )
+
+    assert response["succeeded"] is True
+    assert cursor.executed == ["DELETE FROM test"]
+
+
+async def test_execute_is_allowed_without_a_user(hass: HomeAssistant) -> None:
+    """Automations and triggered scripts carry no user and keep working."""
+    cursor = _select_cursor(rows=[], columns=["id"])
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    await hass.services.async_call(
+        DOMAIN, SERVICE_EXECUTE, {ATTR_QUERY: "DELETE FROM test"}, blocking=True
+    )
+
+    assert cursor.executed == ["DELETE FROM test"]
+
+
+async def test_query_stays_open_to_users_who_are_not_admins(
+    hass: HomeAssistant, hass_read_only_user: User
+) -> None:
+    """Reading is not restricted, so a dashboard can keep showing results."""
+    await _setup_entry(
+        hass, FakePool(FakeConnection(_select_cursor([{"id": 1}], ["id"])))
+    )
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_QUERY,
+        {ATTR_QUERY: "SELECT id FROM test"},
+        blocking=True,
+        return_response=True,
+        context=Context(user_id=hass_read_only_user.id),
+    )
+
+    assert response["result"] == [{"id": 1}]

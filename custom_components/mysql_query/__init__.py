@@ -33,6 +33,7 @@ from homeassistant.exceptions import (
     TemplateError,
 )
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.template import Template
 from homeassistant.helpers.typing import ConfigType
 
@@ -568,7 +569,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         schema=QUERY_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
-    hass.services.async_register(
+    # Execute runs arbitrary SQL that changes data, with the credentials stored
+    # in the connection, so it is for administrators. A call that carries no
+    # user, such as an automation, a script run by a trigger or an add-on, is
+    # not affected: only a call made on behalf of a logged-in user is checked.
+    # Query only reads and stays open to every user.
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_EXECUTE,
         handler,
