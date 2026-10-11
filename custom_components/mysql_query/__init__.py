@@ -29,6 +29,7 @@ from homeassistant.exceptions import (
     ConfigEntryError,
     ConfigEntryNotReady,
     HomeAssistantError,
+    IntegrationError,
     ServiceValidationError,
     TemplateError,
 )
@@ -516,7 +517,7 @@ async def _async_run_statement(  # noqa: PLR0913
                 instance.pool.release(conn)
 
 
-def _setup_error(entry: ConfigEntry, err: BaseException) -> ConfigEntryError:
+def _setup_error(entry: ConfigEntry, err: BaseException) -> IntegrationError:
     """Return the exception that tells Home Assistant why setup failed.
 
     The cause decides what Home Assistant does next. A server that cannot be
