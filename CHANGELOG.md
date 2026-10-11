@@ -18,10 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The minimum Home Assistant version is now 2026.3.0**, declared in `hacs.json` (previously 2025.3.0). Home Assistant moved to Python 3.14 with that release and the code uses Python 3.14 syntax; the brand images in `brand/` are also only read from the integration folder from that release on. HACS refuses to download this version on an older Home Assistant, which stays on the previous release.
 - **A row limit, a connect timeout or a query timeout below 1, and a port outside 1-65535, are rejected by the forms.** A row limit below 1 used to be replaced by the default without a word.
 
+### Security
+
+- **`query` could be used to write.** The check for reading looked at the first keyword only and counted `WITH` as reading, but MySQL 8 accepts `WITH ... UPDATE` and `WITH ... DELETE`, so those ran through `query`. That bypassed the split between the two actions, the administrator restriction on `execute` and the read-only connection switch. A `SELECT ... INTO OUTFILE` could write a file on the server through `query` as well, also when hidden in an executable comment (`/*! ... */`, `/*M! ... */`), which the server runs.
+- **`WITH` is judged by the statement behind its CTE list**, which must be a `SELECT`, `TABLE` or `VALUES`; a list that cannot be read counts as a write. `INTO OUTFILE` and `INTO DUMPFILE` count as writes, outside quotes and comments. The text of an executable comment is read as the code it is, so a semicolon inside one is a second statement.
+- **The server holds `query` to reading.** Every statement sent through `query` now runs inside `START TRANSACTION READ ONLY` and is always rolled back, so the server refuses to change a table (error 1792) whatever the statement looks like, also through a stored function. This needs MySQL 5.6.5 or MariaDB 10.0 or newer. It does not stop a file write, which the text check covers. `execute` is not affected.
+- **Database messages are kept out of the log.** A failure that is only reported in the response used to be logged at error level with the database message, which can carry data from the row it is about, such as the value in `Duplicate entry`. The log now gets a warning with the kind of failure and the errno; the whole message stays in the response.
+
 ### Added
 
 - **Reconfigure** for the connection settings. The new settings are tried before they are saved, the unique id and the generated title follow a changed host or database, a collision with another connection is refused, and the connection reloads.
-- **A sign-in flow when the credentials are refused.** Home Assistant starts it by itself when the database rejects the username or password; it updates the existing connection.
+- **A sign-in flow when the credentials are refused.** Home Assistant starts it by itself when the database rejects the username or password, at startup and when the pool reconnects during a call; it updates the existing connection.
 - **The connection is retried when the database cannot be reached while Home Assistant starts.** Setup used to log an error and stay failed until the entry was reloaded by hand. Credentials that are refused, a database that does not exist or is off limits, and a TLS connection that was asked for but not offered each fail with their own message instead of being retried.
 
 ### Changed
@@ -43,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration
 
+- **Writing through `query`:** a `WITH ... UPDATE`, a `WITH ... DELETE` or a `SELECT ... INTO OUTFILE` sent to `query` is refused now. Send it to `execute`.
 - **Using `execute` from a dashboard as a user who is not an administrator:** the call is refused now. Put the write in an automation and let the dashboard trigger that, for instance through an `input_button` helper. The README has the details.
 - **Still have a `mysql_query:` section in `configuration.yaml`:** add the connection in the UI and remove the section. Connections that were imported earlier are config entries already and are not affected.
 - **Changing a setting:** host, port, credentials, database, charset, collation and TLS are under **Reconfigure** (the menu of the connection); the query timeout, row limit, autocommit and read-only switch are under **Configure**.

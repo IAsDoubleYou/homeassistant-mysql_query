@@ -37,6 +37,7 @@ A Home Assistant custom component that talks to a MySQL or MariaDB database thro
 ## Requirements
 
 - Home Assistant version 2026.3.0 or newer, declared as the minimum in ```hacs.json```. That is the exact floor, for two reasons. Home Assistant moved to Python 3.14 with that release (it requires 3.14.2 or newer), and the code uses Python 3.14 syntax. And the brand images in ```brand/``` are only read from the integration folder from that release on. HACS refuses to download the integration on anything older; whether it also hides the update notification is not documented behaviour, so on an older installation you may still be told an update exists while the download itself is blocked.
+- MySQL 5.6.5 or newer, or MariaDB 10.0 or newer: ```query``` relies on read-only transactions.
 - The ```aiomysql``` driver, which Home Assistant installs automatically from ```manifest.json```
 
 ## Installation
@@ -142,9 +143,9 @@ Because the calls queue, a slow query delays the ones behind it on the same conn
 
 A connection can be marked **Read-only**, in the setup form and under **Configure**. When it is on, every call to ```mysql_query.execute``` on that connection is refused, no matter what the statement contains.
 
-This is a different kind of protection from the split between the two services. The service split catches reaching for the wrong *verb*: a ```DELETE``` sent to ```query``` is refused because ```query``` does not write. The read-only flag catches reaching for the wrong *connection*: a perfectly well-formed ```DELETE``` sent to ```execute``` is refused because that connection is not supposed to be written to at all. It needs no statement analysis and has no way around it.
+This is a different kind of protection from the split between the two services. The service split catches reaching for the wrong *verb*: a ```DELETE``` sent to ```query``` is refused because ```query``` does not write. The read-only flag catches reaching for the wrong *connection*: a perfectly well-formed ```DELETE``` sent to ```execute``` is refused because that connection is not supposed to be written to at all. For ```execute``` it needs no statement analysis: the call is refused before the statement is looked at.
 
-It exists for the connection you created to feed dashboards or reports. Mark it read-only and a write meant for your application database cannot land in it by mistake, however the statement is spelled.
+It exists for the connection you created to feed dashboards or reports. Mark it read-only and a write meant for your application database cannot land in it by mistake through ```execute```, however the statement is spelled. ```query``` is held to reading as well, see [How reading is held to reading](#how-reading-is-held-to-reading).
 
 **Off by default**, so an existing connection keeps working exactly as it did. Turning it on affects only ```execute```; ```query``` keeps working, which is the entire point.
 
@@ -176,13 +177,13 @@ The integration registers two actions. ```query``` is a **responding action**: i
 
 | Service | Use it for | Returns |
 | :--- | :--- | :--- |
-| ```mysql_query.query``` | Reading only: ```SELECT```, ```WITH```, ```SHOW```, ```DESCRIBE```, ```EXPLAIN```, ```CHECKSUM TABLE```, ```HELP```, and the MySQL 8 ```TABLE```/```VALUES``` shorthands. Refuses anything that changes data or schema. | The rows under ```result```, plus ```succeeded```, ```rows_found```, ```column_names```, ```execution_time_ms``` and ```error```. Raises on a database error unless ```raise_on_error: false```. |
+| ```mysql_query.query``` | Reading only: ```SELECT```, ```WITH``` (followed by a ```SELECT```), ```SHOW```, ```DESCRIBE```, ```EXPLAIN```, ```CHECKSUM TABLE```, ```HELP```, and the MySQL 8 ```TABLE```/```VALUES``` shorthands. Refuses anything that changes data or schema. | The rows under ```result```, plus ```succeeded```, ```rows_found```, ```column_names```, ```execution_time_ms``` and ```error```. Raises on a database error unless ```raise_on_error: false```. |
 | ```mysql_query.execute``` | Everything that changes something: ```INSERT```, ```UPDATE```, ```DELETE```, DDL, and maintenance statements such as ```ANALYZE TABLE``` or ```OPTIMIZE```. Refuses a read-only statement. | Full metadata: row counts, generated id, timing and errors, when you ask for the response. Reports a database error in the response instead of raising, unless ```raise_on_error: true```. |
 
 <details>
 <summary><strong>Which statements count as read-only</strong> — the exact list, and how <code>EXPLAIN</code> and <code>ANALYZE</code> are handled</summary>
 
-The dividing line is read-only versus read/write, not the word ```SELECT```. ```query``` accepts ```SELECT```, ```WITH```, ```SHOW```, ```DESCRIBE```/```DESC```, ```CHECKSUM TABLE```, ```HELP```, and the MySQL 8 ```TABLE``` and ```VALUES``` shorthands. Everything else belongs to ```execute```, including maintenance statements that look informational but rewrite something: ```ANALYZE TABLE```, ```CHECK```, ```OPTIMIZE``` and ```REPAIR```.
+The dividing line is read-only versus read/write, not the word ```SELECT```. ```query``` accepts ```SELECT```, ```SHOW```, ```DESCRIBE```/```DESC```, ```CHECKSUM TABLE```, ```HELP```, and the MySQL 8 ```TABLE``` and ```VALUES``` shorthands, and ```WITH``` when the statement behind its list of common table expressions is one of those: ```WITH c AS (...) SELECT ...``` reads, ```WITH c AS (...) DELETE ...``` does not, and a ```WITH``` that cannot be read is treated as a write. A statement that writes a file on the server, ```INTO OUTFILE``` or ```INTO DUMPFILE```, counts as a write too. Everything else belongs to ```execute```, including maintenance statements that look informational but rewrite something: ```ANALYZE TABLE```, ```CHECK```, ```OPTIMIZE``` and ```REPAIR```.
 
 ```EXPLAIN``` and ```ANALYZE``` are prefixes in front of another statement, not statements of their own — and they are **not** treated the same way, because they do not do the same thing:
 
@@ -205,7 +206,14 @@ Options such as ```FORMAT=JSON``` in between are skipped.
 
 **One statement per call.** A call carrying several statements separated by a semicolon is refused by both services. The driver has multi-statement support switched on and cannot be told otherwise, so ```SELECT 1; DELETE FROM states``` would run *both* while reporting only the result of the first. A trailing semicolon is fine, and so is a semicolon inside a quoted value.
 
-**What this protection is not.** The check reads the leading keywords of the statement; it is a guard against reaching for the wrong service, not a security boundary. A ```SELECT``` can still write through ```INTO OUTFILE``` or a stored function with side effects, and MySQL 8 accepts a CTE in front of an ```UPDATE```. If a connection must never write, give its database user ```SELECT``` rights only, and consider marking the connection [read-only](#read-only-connections).
+#### How reading is held to reading
+
+Two checks stand between a statement and the database when it goes through ```query```:
+
+1. **The text is checked.** Only a statement that starts with a reading keyword passes. A ```WITH``` passes only when the statement behind its list of common table expressions is a ```SELECT```, ```TABLE``` or ```VALUES```: MySQL 8 also accepts ```WITH ... UPDATE``` and ```WITH ... DELETE```. ```INTO OUTFILE``` and ```INTO DUMPFILE``` count as writes. What is inside quotes and ordinary comments does not count. What is inside a comment the server executes anyway, ```/*! ... */``` and ```/*M! ... */```, does: it is read as the code it is.
+2. **The server enforces it.** Every statement sent through ```query``` runs inside ```START TRANSACTION READ ONLY``` and is rolled back afterwards, so the server itself refuses to change a table (error 1792), however the statement is written and also when a stored function tries. This needs MySQL 5.6.5 or MariaDB 10.0 or newer.
+
+What this does not cover: the transaction concerns tables, so it does not stop a statement that writes a file (a MariaDB server writes the file inside a read-only transaction as well, which is why the first check refuses ```INTO OUTFILE``` itself), and it does not limit how long or how heavy a statement is. The first check also cannot know what a stored function does. If a connection must never write, give its database user ```SELECT``` rights only, and consider marking the connection [read-only](#read-only-connections). ```execute``` has none of this: writing is what it is for, which is why it is for [administrators](#who-may-call-what).
 
 Both services accept exactly the same five fields:
 
@@ -577,6 +585,8 @@ The services stay listed in Home Assistant while no connection is loaded, so a c
 3. **```execute``` is for administrators.** A call made on behalf of a user who is not an administrator is refused. Automations are not affected. If a dashboard lets such a user cause a write, move the write into an automation and let the dashboard trigger it; see [Who may call what](#who-may-call-what). ```query``` is not restricted.
 4. **Some settings moved.** Changing where a connection connects (host, port, credentials, database, charset, collation, TLS) is now **Reconfigure**, in the menu of the connection. The query timeout, the row limit, autocommit and the read-only switch stay under **Configure**. Your connections are converted automatically the first time 4.0.0 starts.
 5. **You cannot go back to 3.x without re-creating the connections.** The conversion in (4) is one way, and 3.x would not find its settings where it looks for them. Home Assistant refuses to load a converted connection in 3.x instead of running it with the wrong settings; remove it and add it again to downgrade. Make a backup before you update if you may want to go back.
+
+One thing to check: ```query``` is stricter about what counts as reading. A ```WITH ... UPDATE``` or ```WITH ... DELETE``` (MySQL 8) and a ```SELECT ... INTO OUTFILE``` used to pass as reading and ran through ```query```; they are refused there now and belong to ```execute```. Every statement through ```query``` also runs in a read-only transaction now.
 
 Smaller things: ```execute``` no longer needs a ```response_variable```; the actions stay listed while no connection is loaded and then say why a call cannot run; a connection whose database is not up yet when Home Assistant starts is retried by itself; refused credentials start a sign-in form instead of leaving the connection failed; and the password field is masked and never shown again.
 
