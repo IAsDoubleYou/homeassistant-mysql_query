@@ -117,6 +117,7 @@ class MySQLInstance:
     pool: aiomysql.Pool
     config: Mapping[str, Any]
     title: str
+    entry_id: str
     # Set by the user on the connection itself. A hard boundary: it refuses
     # execute without looking at the statement at all.
     read_only: bool = False
@@ -645,12 +646,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: MySQLQueryConfigEntry) -
         pool=pool,
         config=config,
         title=entry.title,
+        entry_id=entry.entry_id,
         read_only=bool(
             config.get(CONF_READONLY_CONNECTION, DEFAULT_READONLY_CONNECTION)
         ),
     )
 
     return True
+
+
+@callback
+def _async_start_reauth(hass: HomeAssistant, instance: MySQLInstance) -> None:
+    """Ask the user for new credentials for the connection of ``instance``."""
+    if (entry := hass.config_entries.async_get_entry(instance.entry_id)) is not None:
+        entry.async_start_reauth(hass)
 
 
 async def _async_handle_service(
@@ -698,9 +707,20 @@ async def _async_handle_service(
         "result": [],
     }
 
-    def report(message: str, errno: int | None = None) -> ServiceResponse:
-        """Report a failure in the response, and log it."""
-        _LOGGER.error("MySQL call on %s failed: %s", instance.title, message)
+    def report(kind: str, message: str, errno: int | None = None) -> ServiceResponse:
+        """Report a failure in the response, and log that it happened.
+
+        The log gets the kind of failure and the error number, not the message.
+        A database message can carry data from the row it is about, such as
+        "Duplicate entry 'x' for key ...", and the log is often shared. The
+        whole message is in the response.
+        """
+        _LOGGER.warning(
+            "A call on %s failed (%s%s); the details are in its response",
+            instance.title,
+            kind,
+            f", errno {errno}" if errno is not None else "",
+        )
         response["error"] = {"message": message, "errno": errno, "sqlstate": None}
         return _service_response(call, response)
 
@@ -751,11 +771,17 @@ async def _async_handle_service(
         # A template that does not render: the caller's mistake, not a fault.
         if _raises_on_error(call):
             raise
-        return report(str(err))
+        return report("invalid template", str(err))
     except aiomysql.Error as err:
         errno, message = error_details(err)
+        if errno == ERRNO_ACCESS_DENIED:
+            # The pool reconnected and the server no longer accepts the
+            # credentials, for instance after the password was changed there.
+            # Setup would end up in the same place on the next reload, so ask
+            # for new ones now; a flow that is already open is not repeated.
+            _async_start_reauth(hass, instance)
         if _raises_on_error(call):
-            _LOGGER.debug("MySQL error [%s]: %s", errno, message)
+            _LOGGER.debug("MySQL error on %s, errno %s", instance.title, errno)
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="mysql_error",
@@ -763,27 +789,28 @@ async def _async_handle_service(
                     "details": f"[{errno}] {message}" if errno else message
                 },
             ) from err
-        return report(message, errno)
+        return report("database error", message, errno)
     except TimeoutError as err:
         if _raises_on_error(call):
-            _LOGGER.debug("Query on %s timed out", instance.title)
+            _LOGGER.debug("Call on %s timed out", instance.title)
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="timeout",
                 translation_placeholders={"connection": instance.title},
             ) from err
         return report(
-            "Timed out borrowing a connection from the pool or running the statement"
+            "timeout",
+            "Timed out borrowing a connection from the pool or running the statement",
         )
     except Exception as err:
         if _raises_on_error(call):
-            _LOGGER.debug("Unexpected error on %s: %s", instance.title, err)
+            _LOGGER.debug("Unexpected %s on %s", type(err).__name__, instance.title)
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="unexpected_error",
                 translation_placeholders={"error": str(err)},
             ) from err
-        return report(str(err))
+        return report("unexpected error", str(err))
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

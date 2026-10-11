@@ -1020,23 +1020,152 @@ async def test_a_raised_failure_is_not_also_logged_as_an_error(
     ]
 
 
-async def test_a_reported_failure_is_logged(
+async def test_a_reported_failure_is_logged_without_its_message(
     hass: HomeAssistant, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A failure that only travels in the response would otherwise go unseen."""
-    cursor = FakeCursor(error=MySQLError(1064, "Syntax error"))
+    """The log says that a call failed and with which errno, not what it said.
+
+    A database message can carry data from the row it is about, and the log is
+    often shared. The whole message is in the response.
+    """
+    cursor = FakeCursor(error=MySQLError(1062, "Duplicate entry 'secret' for key 'k'"))
     await _setup_entry(hass, FakePool(FakeConnection(cursor)))
 
     response = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_EXECUTE,
+        {ATTR_QUERY: "INSERT INTO test VALUES (1)"},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert response["succeeded"] is False
+    assert "secret" in response["error"]["message"]
+    records = [r for r in caplog.records if r.name == "custom_components.mysql_query"]
+    assert [r.levelno for r in records] == [logging.WARNING]
+    assert "errno 1062" in records[0].getMessage()
+    assert "secret" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("error", "kind"),
+    [
+        (RuntimeError("secret value"), "unexpected error"),
+        (TimeoutError(), "timeout"),
+    ],
+)
+async def test_other_reported_failures_are_logged_without_their_message(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+    error: Exception,
+    kind: str,
+) -> None:
+    """The same holds for a timeout and for an error nobody anticipated."""
+    await _setup_entry(hass, FakePool(FakeConnection(FakeCursor())))
+
+    with patch(
+        "custom_components.mysql_query._async_run_statement",
+        AsyncMock(side_effect=error),
+    ):
+        response = await hass.services.async_call(
+            DOMAIN,
+            SERVICE_EXECUTE,
+            {ATTR_QUERY: "DELETE FROM test"},
+            blocking=True,
+            return_response=True,
+        )
+
+    assert response["succeeded"] is False
+    assert f"({kind})" in caplog.text
+    assert "secret" not in caplog.text
+
+
+async def test_a_raised_failure_keeps_the_message_out_of_the_log(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Raised errors are not logged by us, not even at debug level, with data."""
+    caplog.set_level(logging.DEBUG)
+    cursor = FakeCursor(error=MySQLError(1062, "Duplicate entry 'secret' for key 'k'"))
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    with pytest.raises(HomeAssistantError, match="secret"):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_EXECUTE,
+            {ATTR_QUERY: "INSERT INTO test VALUES (1)", ATTR_RAISE_ON_ERROR: True},
+            blocking=True,
+            return_response=True,
+        )
+
+    assert "secret" not in caplog.text
+
+
+@pytest.mark.parametrize("raise_on_error", [True, False])
+async def test_refused_credentials_during_a_call_start_reauth(
+    hass: HomeAssistant, raise_on_error: bool
+) -> None:
+    """The pool reconnects with the stored credentials and the server says no.
+
+    Setup would end up in the same place on the next reload, so the user is
+    asked for new credentials right away, whatever raise_on_error says.
+    """
+    cursor = FakeCursor(error=MySQLError(1045, "Access denied for user 'u'@'h'"))
+    entry = await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    try:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_EXECUTE,
+            {ATTR_QUERY: "DELETE FROM test", ATTR_RAISE_ON_ERROR: raise_on_error},
+            blocking=True,
+            return_response=True,
+        )
+    except HomeAssistantError:
+        assert raise_on_error
+    await hass.async_block_till_done()
+
+    flows = list(hass.config_entries.flow.async_progress_by_handler(DOMAIN))
+    assert [(f["context"]["source"], f["context"]["entry_id"]) for f in flows] == [
+        ("reauth", entry.entry_id)
+    ]
+
+
+async def test_repeated_refusals_open_one_reauth_flow(hass: HomeAssistant) -> None:
+    """A flow that is already open is not started a second time."""
+    cursor = FakeCursor(error=MySQLError(1045, "Access denied"))
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    for _ in range(3):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_EXECUTE,
+            {ATTR_QUERY: "DELETE FROM test"},
+            blocking=True,
+            return_response=True,
+        )
+        await hass.async_block_till_done()
+
+    assert len(list(hass.config_entries.flow.async_progress_by_handler(DOMAIN))) == 1
+
+
+@pytest.mark.parametrize("errno", [1064, 1044, 1049, 2003])
+async def test_other_database_errors_do_not_start_reauth(
+    hass: HomeAssistant, errno: int
+) -> None:
+    """Only refused credentials call for new credentials."""
+    cursor = FakeCursor(error=MySQLError(errno, "Something else"))
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    await hass.services.async_call(
         DOMAIN,
         SERVICE_EXECUTE,
         {ATTR_QUERY: "DELETE FROM test"},
         blocking=True,
         return_response=True,
     )
+    await hass.async_block_till_done()
 
-    assert response["succeeded"] is False
-    assert "Syntax error" in caplog.text
+    assert not list(hass.config_entries.flow.async_progress_by_handler(DOMAIN))
 
 
 async def test_execute_raises_a_validation_error_for_a_broken_template_when_asked(
