@@ -12,7 +12,7 @@ query:
           multiline: true
     values:
       name: "Values"
-      description: "Optional list of values for the %s placeholders in the query, in the order the placeholders appear. Templates are rendered with their native type, so numbers, booleans and none stay an int, float, bool or NULL."
+      description: "Optional list of values for the %s placeholders in the query, in the order the placeholders appear. In an automation or script, templates here are rendered by Home Assistant with their native type, so numbers, booleans and none arrive as an int, float, bool or NULL. The values are bound as they arrive."
       required: false
       example: '["sensor.temperature", 10]'
       selector:
@@ -52,7 +52,7 @@ execute:
           multiline: true
     values:
       name: "Values"
-      description: "Optional list of values for the %s placeholders in the query, in the order the placeholders appear. Templates are rendered with their native type, so numbers, booleans and none stay an int, float, bool or NULL."
+      description: "Optional list of values for the %s placeholders in the query, in the order the placeholders appear. In an automation or script, templates here are rendered by Home Assistant with their native type, so numbers, booleans and none arrive as an int, float, bool or NULL. The values are bound as they arrive."
       required: false
       example: '["active", 1]'
       selector:

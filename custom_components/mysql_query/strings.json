@@ -117,9 +117,6 @@
         "connection_not_loaded": {
             "message": "The connection \"{connection}\" is not loaded, so it cannot run this call. Check its status under Settings → Devices & services."
         },
-        "invalid_template": {
-            "message": "A template in the values does not render: {error}"
-        },
         "mysql_error": {
             "message": "The database reported an error: {details}"
         },
@@ -141,7 +138,7 @@
                 },
                 "values": {
                     "name": "Values",
-                    "description": "Optional list of values for the %s placeholders in the query, in the order the placeholders appear. Templates are rendered with their native type, so numbers, booleans and none stay an int, float, bool or NULL."
+                    "description": "Optional list of values for the %s placeholders in the query, in the order the placeholders appear. In an automation or script, templates here are rendered by Home Assistant with their native type, so numbers, booleans and none arrive as an int, float, bool or NULL. The values are bound as they arrive."
                 },
                 "db4query": {
                     "name": "Database override",
@@ -167,7 +164,7 @@
                 },
                 "values": {
                     "name": "Values",
-                    "description": "Optional list of values for the %s placeholders in the query, in the order the placeholders appear. Templates are rendered with their native type, so numbers, booleans and none stay an int, float, bool or NULL."
+                    "description": "Optional list of values for the %s placeholders in the query, in the order the placeholders appear. In an automation or script, templates here are rendered by Home Assistant with their native type, so numbers, booleans and none arrive as an int, float, bool or NULL. The values are bound as they arrive."
                 },
                 "db4query": {
                     "name": "Database override",

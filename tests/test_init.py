@@ -19,6 +19,8 @@ from homeassistant.exceptions import (
     ServiceValidationError,
     Unauthorized,
 )
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.script import Script
 from homeassistant.setup import async_setup_component
 
 from custom_components.mysql_query.const import (
@@ -234,41 +236,112 @@ async def test_execute_service_empty_values_binds_nothing(
     assert cursor.executed_args == [None]
 
 
-async def test_execute_service_binds_rendered_values(hass: HomeAssistant) -> None:
-    """Templates in values are rendered natively and bound as parameters."""
+async def _run_as_script(hass: HomeAssistant, action: dict) -> None:
+    """Run one action the way an automation or a script runs it.
+
+    Home Assistant's script engine renders the templates in the data before
+    it makes the call. The developer tools run an action the same way.
+    """
+    sequence = cv.SCRIPT_SCHEMA([action])
+    await Script(hass, sequence, "test", DOMAIN).async_run(context=Context())
+
+
+async def test_a_script_binds_its_templates_with_their_native_types(
+    hass: HomeAssistant,
+) -> None:
+    """What an automation passes in values reaches the database with its type.
+
+    Home Assistant renders the templates, natively, so a number arrives as a
+    number and none as NULL. Plain text is left alone, also when it looks
+    like a number: "42" stays text and a leading zero is kept.
+    """
     cursor = _select_cursor(rows=[], columns=["id"])
     hass.states.async_set("sensor.temperature", "21.5")
 
     await _setup_entry(hass, FakePool(FakeConnection(cursor)))
 
-    query = "UPDATE test SET temp = %s, count = %s, ok = %s, note = %s"
-    await hass.services.async_call(
-        DOMAIN,
-        SERVICE_EXECUTE,
+    query = "UPDATE test SET a = %s, b = %s, c = %s, d = %s, e = %s, f = %s, g = %s"
+    await _run_as_script(
+        hass,
         {
-            ATTR_QUERY: query,
-            ATTR_VALUES: [
-                "{{ states('sensor.temperature') | float }}",
-                "{{ 1 + 1 }}",
-                "{{ 1 == 1 }}",
-                "{{ none }}",
-            ],
+            "action": f"{DOMAIN}.{SERVICE_EXECUTE}",
+            "data": {
+                ATTR_QUERY: query,
+                ATTR_VALUES: [
+                    "{{ states('sensor.temperature') | float }}",
+                    "{{ 1 + 1 }}",
+                    "{{ 1 == 1 }}",
+                    "{{ none }}",
+                    "sensor.kitchen",
+                    "0612345678",
+                    "42",
+                ],
+            },
         },
-        blocking=True,
-        return_response=True,
     )
 
     assert cursor.executed == [query]
     values = cursor.executed_args[0]
-    assert values == (21.5, 2, True, None)
-    # Native rendering: a number must not arrive as its string form.
-    assert [type(value) for value in values] == [float, int, bool, type(None)]
+    assert values == (21.5, 2, True, None, "sensor.kitchen", "0612345678", "42")
+    assert [type(value) for value in values[:4]] == [float, int, bool, type(None)]
 
 
-async def test_execute_service_passes_non_template_values_unchanged(
+async def test_a_script_filters_a_query_on_a_template(hass: HomeAssistant) -> None:
+    """Query takes its values from a template in a script, and returns its rows."""
+    cursor = _select_cursor(rows=[{"state": "21.5"}], columns=["state"])
+    hass.states.async_set("input_text.entity", "sensor.temperature")
+
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    await _run_as_script(
+        hass,
+        {
+            "action": f"{DOMAIN}.{SERVICE_QUERY}",
+            "data": {
+                ATTR_QUERY: "SELECT state FROM states WHERE entity_id = %s",
+                ATTR_VALUES: ["{{ states('input_text.entity') }}"],
+            },
+            "response_variable": "rows",
+        },
+    )
+
+    assert cursor.executed_args == [("sensor.temperature",)]
+
+
+async def test_text_from_a_template_is_not_run_as_a_template(
     hass: HomeAssistant,
 ) -> None:
-    """Literal values are bound as given, strings included."""
+    """A value is rendered once, by Home Assistant, and then bound as text.
+
+    A sensor state, a media title or a note anyone can edit may itself read
+    like a template. Rendering the values again would evaluate it, and store
+    42 here instead of what the sensor says.
+    """
+    cursor = _select_cursor(rows=[], columns=["id"])
+    hass.states.async_set("sensor.note", "{{ 7 * 6 }}")
+
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    await _run_as_script(
+        hass,
+        {
+            "action": f"{DOMAIN}.{SERVICE_EXECUTE}",
+            "data": {
+                ATTR_QUERY: "INSERT INTO notes (text) VALUES (%s)",
+                ATTR_VALUES: ["{{ states('sensor.note') }}"],
+            },
+        },
+    )
+
+    assert cursor.executed_args == [("{{ 7 * 6 }}",)]
+
+
+async def test_a_direct_call_binds_its_values_as_given(hass: HomeAssistant) -> None:
+    """A call that does not go through a script has nothing rendered.
+
+    Such as a dashboard button or a call through the API: what it sends is
+    what is bound, text that looks like a template or a number included.
+    """
     cursor = _select_cursor(rows=[], columns=["id"])
 
     await _setup_entry(hass, FakePool(FakeConnection(cursor)))
@@ -277,20 +350,18 @@ async def test_execute_service_passes_non_template_values_unchanged(
         DOMAIN,
         SERVICE_EXECUTE,
         {
-            ATTR_QUERY: "DELETE FROM test WHERE a = %s AND b = %s AND c = %s",
-            # "42" and "1,2" would become an int and a tuple if literal strings
-            # were parsed as well, so they must be left alone.
-            ATTR_VALUES: ["42", "1,2", 7],
+            ATTR_QUERY: "DELETE FROM t WHERE a = %s AND b = %s AND c = %s AND d = %s",
+            ATTR_VALUES: ["{{ 1 + 1 }}", "42", "1,2", 7],
         },
         blocking=True,
         return_response=True,
     )
 
-    assert cursor.executed_args == [("42", "1,2", 7)]
+    assert cursor.executed_args == [("{{ 1 + 1 }}", "42", "1,2", 7)]
 
 
-async def test_query_service_binds_rendered_values(hass: HomeAssistant) -> None:
-    """The legacy query service accepts values as well."""
+async def test_query_service_binds_values(hass: HomeAssistant) -> None:
+    """The query service accepts values as well."""
     cursor = _select_cursor(rows=[{"id": 1}], columns=["id"])
 
     await _setup_entry(hass, FakePool(FakeConnection(cursor)))
@@ -298,7 +369,7 @@ async def test_query_service_binds_rendered_values(hass: HomeAssistant) -> None:
     response = await hass.services.async_call(
         DOMAIN,
         SERVICE_QUERY,
-        {ATTR_QUERY: "SELECT * FROM test WHERE id = %s", ATTR_VALUES: ["{{ 1 }}"]},
+        {ATTR_QUERY: "SELECT * FROM test WHERE id = %s", ATTR_VALUES: [1]},
         blocking=True,
         return_response=True,
     )
@@ -344,45 +415,38 @@ async def test_execute_service_rejects_non_scalar_values(hass: HomeAssistant) ->
         )
 
 
-async def test_execute_service_broken_template_reports_error(
-    hass: HomeAssistant,
+@pytest.mark.parametrize("service", [SERVICE_QUERY, SERVICE_EXECUTE])
+async def test_a_failing_template_stops_the_script_before_the_statement(
+    hass: HomeAssistant, service: str
 ) -> None:
-    """A failing template is reported like any other execute failure."""
+    """Home Assistant stops at a template that fails, whatever raise_on_error says.
+
+    The template is rendered before the call is made, so the statement is
+    never sent and there is no response to report the failure in.
+    """
     cursor = _select_cursor(rows=[], columns=["id"])
 
     await _setup_entry(hass, FakePool(FakeConnection(cursor)))
 
-    response = await hass.services.async_call(
-        DOMAIN,
-        SERVICE_EXECUTE,
-        {ATTR_QUERY: "DELETE FROM test WHERE id = %s", ATTR_VALUES: ["{{ 1 / 0 }}"]},
-        blocking=True,
-        return_response=True,
-    )
+    action = {
+        "action": f"{DOMAIN}.{service}",
+        "data": {
+            ATTR_QUERY: (
+                "SELECT * FROM test WHERE id = %s"
+                if service == SERVICE_QUERY
+                else "DELETE FROM test WHERE id = %s"
+            ),
+            ATTR_VALUES: ["{{ 1 / 0 }}"],
+            ATTR_RAISE_ON_ERROR: False,
+        },
+    }
+    if service == SERVICE_QUERY:
+        action["response_variable"] = "rows"
 
-    assert response["succeeded"] is False
-    assert "template" in response["error"]["message"].lower()
-    # The statement never reached the database.
+    with pytest.raises(HomeAssistantError, match="division by zero"):
+        await _run_as_script(hass, action)
+
     assert cursor.executed == []
-
-
-async def test_query_service_broken_template_raises(hass: HomeAssistant) -> None:
-    """The legacy query service raises on a failing template."""
-    await _setup_entry(hass, FakePool(FakeConnection(_select_cursor([], ["id"]))))
-
-    with pytest.raises(ServiceValidationError) as err:
-        await hass.services.async_call(
-            DOMAIN,
-            SERVICE_QUERY,
-            {
-                ATTR_QUERY: "SELECT * FROM test WHERE id = %s",
-                ATTR_VALUES: ["{{ 1 / 0 }}"],
-            },
-            blocking=True,
-            return_response=True,
-        )
-
-    assert err.value.translation_key == "invalid_template"
 
 
 async def test_execute_service_insert_reports_affected_rows(
@@ -1166,28 +1230,6 @@ async def test_other_database_errors_do_not_start_reauth(
     await hass.async_block_till_done()
 
     assert not list(hass.config_entries.flow.async_progress_by_handler(DOMAIN))
-
-
-async def test_execute_raises_a_validation_error_for_a_broken_template_when_asked(
-    hass: HomeAssistant,
-) -> None:
-    """A template that does not render is the caller's mistake, and raises as such."""
-    await _setup_entry(hass, FakePool(FakeConnection(FakeCursor())))
-
-    with pytest.raises(ServiceValidationError) as err:
-        await hass.services.async_call(
-            DOMAIN,
-            SERVICE_EXECUTE,
-            {
-                ATTR_QUERY: "DELETE FROM test WHERE id = %s",
-                ATTR_VALUES: ["{{ 1 / 0 }}"],
-                ATTR_RAISE_ON_ERROR: True,
-            },
-            blocking=True,
-            return_response=True,
-        )
-
-    assert err.value.translation_key == "invalid_template"
 
 
 async def test_refusals_raise_even_when_errors_are_reported_in_the_response(

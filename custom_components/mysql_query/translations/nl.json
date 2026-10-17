@@ -117,9 +117,6 @@
         "connection_not_loaded": {
             "message": "De verbinding \"{connection}\" is niet geladen en kan deze aanroep dus niet uitvoeren. Controleer de status onder Instellingen → Apparaten & services."
         },
-        "invalid_template": {
-            "message": "Een template in de waarden kan niet worden gerenderd: {error}"
-        },
         "mysql_error": {
             "message": "De database meldde een fout: {details}"
         },
@@ -141,7 +138,7 @@
                 },
                 "values": {
                     "name": "Waarden",
-                    "description": "Optionele lijst met waarden voor de %s-plaatshouders in de query, in de volgorde waarin de plaatshouders voorkomen. Templates worden met hun eigen datatype gerenderd, dus getallen, booleans en none blijven een int, float, bool of NULL."
+                    "description": "Optionele lijst met waarden voor de %s-plaatshouders in de query, in de volgorde waarin de plaatshouders voorkomen. In een automatisering of script rendert Home Assistant templates hier met hun eigen datatype, dus getallen, booleans en none komen binnen als int, float, bool of NULL. De waarden worden gebonden zoals ze binnenkomen."
                 },
                 "db4query": {
                     "name": "Database overschrijven",
@@ -167,7 +164,7 @@
                 },
                 "values": {
                     "name": "Waarden",
-                    "description": "Optionele lijst met waarden voor de %s-plaatshouders in de query, in de volgorde waarin de plaatshouders voorkomen. Templates worden met hun eigen datatype gerenderd, dus getallen, booleans en none blijven een int, float, bool of NULL."
+                    "description": "Optionele lijst met waarden voor de %s-plaatshouders in de query, in de volgorde waarin de plaatshouders voorkomen. In een automatisering of script rendert Home Assistant templates hier met hun eigen datatype, dus getallen, booleans en none komen binnen als int, float, bool of NULL. De waarden worden gebonden zoals ze binnenkomen."
                 },
                 "db4query": {
                     "name": "Database overschrijven",

@@ -31,11 +31,9 @@ from homeassistant.exceptions import (
     HomeAssistantError,
     IntegrationError,
     ServiceValidationError,
-    TemplateError,
 )
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.service import async_register_admin_service
-from homeassistant.helpers.template import Template
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
@@ -80,8 +78,7 @@ QUERY_SCHEMA: Final = vol.Schema(
         vol.Required(ATTR_QUERY): cv.string,
         # Values bound to the %s placeholders of a parameterized query. Only
         # scalars are accepted: those are the types MySQL can bind to a single
-        # placeholder. Strings are allowed to still be templates here, because
-        # a call made straight through the API arrives unrendered.
+        # placeholder. See bind_values for why templates are not rendered here.
         vol.Optional(ATTR_VALUES): vol.All(
             cv.ensure_list, [vol.Any(None, bool, int, float, str)]
         ),
@@ -316,40 +313,16 @@ def to_json_serializable(value: Any) -> Any:
     return str(value)
 
 
-def render_value(hass: HomeAssistant, value: Any) -> Any:
-    """Render a single placeholder value, keeping its native Python type.
+def bind_values(values: Sequence[Any] | None) -> tuple[Any, ...] | None:
+    """Return the values to bind to the placeholders, exactly as they arrived.
 
-    A call from an automation arrives with its templates already rendered, but
-    one made through the API or the developer tools does not, so render them
-    here as well. Rendering is native (``parse_result=True``) so a template
-    that yields a number, a boolean or none is bound as an int, float, bool or
-    NULL instead of as text.
-
-    Literal strings are handed to MySQL untouched: parsing those as well would
-    turn a value like "1,2" into a tuple and "42" into an int, which would
-    change what ends up in the database.
-    """
-    if not isinstance(value, str):
-        return value
-
-    template = Template(value, hass)
-    if template.is_static:
-        return value
-
-    try:
-        return template.async_render(parse_result=True)
-    except TemplateError as err:
-        raise ServiceValidationError(
-            translation_domain=DOMAIN,
-            translation_key="invalid_template",
-            translation_placeholders={"error": str(err)},
-        ) from err
-
-
-def render_values(
-    hass: HomeAssistant, values: Sequence[Any] | None
-) -> tuple[Any, ...] | None:
-    """Render the placeholder values of a parameterized query.
+    Templates are not rendered here. An automation or a script, and the
+    developer tools, which run a call as a script, hand the values over with
+    their templates already rendered by Home Assistant, with their native
+    types: a number, a boolean or none arrives as an int, float, bool or None.
+    Rendering them again would run text that came out of a template as a
+    template of its own, so a sensor state or a media title that reads
+    "{{ ... }}" would be evaluated instead of stored.
 
     Returns None when there is nothing to bind. That is not the same as an
     empty tuple: the driver only interpolates the statement when the arguments
@@ -359,7 +332,7 @@ def render_values(
     if not values:
         return None
 
-    return tuple(render_value(hass, value) for value in values)
+    return tuple(values)
 
 
 async def _async_execute_statement(
@@ -741,11 +714,6 @@ async def _async_handle_service(
         return _service_response(call, response)
 
     try:
-        # Rendering inside the try keeps a broken template on the same
-        # error path as a broken statement: reported in the response for
-        # execute, raised for query.
-        rendered_values = render_values(hass, _values)
-
         # Serialise the calls on this entry: without the lock two service
         # calls would push their statements onto the same connection at
         # the same time and read each other's results.
@@ -756,7 +724,7 @@ async def _async_handle_service(
                 _query,
                 _db4query,
                 row_limit,
-                rendered_values,
+                bind_values(_values),
                 # Only reading belongs to query, so the server is told to hold
                 # it to that. Execute has to be able to write.
                 read_only=call.service == SERVICE_QUERY,
@@ -783,11 +751,6 @@ async def _async_handle_service(
             return _query_response(response)
         return response  # noqa: TRY300
 
-    except ServiceValidationError as err:
-        # A template that does not render: the caller's mistake, not a fault.
-        if _raises_on_error(call):
-            raise
-        return report("invalid template", str(err))
     except aiomysql.Error as err:
         errno, message = error_details(err)
         if errno == ERRNO_ACCESS_DENIED:

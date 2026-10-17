@@ -277,7 +277,7 @@ actions:
 
 #### Templates keep their data type
 
-Every value is rendered through the Home Assistant template engine with native typing, so a template that produces a number arrives as a number and not as text. That matters for numeric and boolean columns, and it is the only way to store a real ```NULL```:
+In an automation or a script, Home Assistant renders the templates in ```values``` before it makes the call, with native typing, so a template that produces a number arrives as a number and not as text. That matters for numeric and boolean columns, and it is the only way to store a real ```NULL```:
 
 | Value in ```values``` | Bound as | Python type |
 | :--- | :--- | :--- |
@@ -289,6 +289,10 @@ Every value is rendered through the Home Assistant template engine with native t
 | ```42``` | ```42``` | ```int``` |
 
 A plain value without ```{{ ... }}``` is passed through untouched and is never reinterpreted: ```"42"``` stays the string ```"42"``` and a phone number like ```"0612345678"``` keeps its leading zero.
+
+The integration binds the values as they arrive and does not render them a second time. Text that comes out of a template is stored as that text, also when it reads like a template itself, such as a media title or a note that says ```{{ ... }}```.
+
+Home Assistant renders templates in automations, in scripts and in the developer tools. A dashboard button that calls ```mysql_query.execute``` directly does not render anything, so a template in its ```values``` would be stored as text. Let such a button run a script that makes the call instead; the template is rendered there.
 
 #### One placeholder, one value
 
@@ -323,7 +327,7 @@ This only applies when ```values``` is present. Without it, nothing in the state
 
 #### Errors in a value
 
-A template that fails (a division by zero, a filter on a value that is not there) is treated like any other failure of the call, so it follows ```raise_on_error```: it either stops the automation with an error that names the template problem, or comes back as ```succeeded: false``` with the details in ```error```. Either way the statement is not sent to the database.
+A template that fails (a division by zero, a filter on a value that is not there) is reported by Home Assistant itself, before the call is made: the automation or script stops at that action with an error that names the template problem. That happens whatever ```raise_on_error``` says, because the call never starts. The statement is not sent to the database.
 
 ### Service: ```mysql_query.query```
 
@@ -560,7 +564,7 @@ Whether a failure stops your automation or comes back in the response is decided
 | :--- | :--- | :--- |
 | Statement succeeds | Returns the response, ```succeeded: true``` | Returns the response, ```succeeded: true``` |
 | SQL error (syntax, permissions, …) | Raises; the automation stops | Returns ```succeeded: false``` and fills ```error``` |
-| Failing template in ```values``` | Raises a validation error; the statement is not sent | Returns ```succeeded: false```; the statement is not sent |
+| Failing template in ```values``` | Home Assistant stops the automation before the call; the statement is not sent | The same: the call never starts, so the flag does not apply |
 | Connection dropped | Reconnects automatically, then behaves as above | Reconnects automatically, then behaves as above |
 | No free pooled connection, or a statement still running when the query timeout elapses | Raises | Returns ```succeeded: false``` and fills ```error``` |
 
@@ -578,13 +582,14 @@ The services stay listed in Home Assistant while no connection is loaded, so a c
 
 ## Upgrading to 4.0.0
 
-**These changes were made in preparation for including the integration in the default HACS repository, to fully meet the latest Home Assistant and HACS quality and security requirements.** Most of it is invisible, but five things behave differently:
+**These changes were made in preparation for including the integration in the default HACS repository, to fully meet the latest Home Assistant and HACS quality and security requirements.** Most of it is invisible, but six things behave differently:
 
 1. **Home Assistant 2026.3.0 or newer is required.** Home Assistant moved to Python 3.14 with that release, and this version uses it. On an older Home Assistant HACS will not install 4.0.0; stay on 3.2.0 there.
 2. **YAML configuration is no longer supported.** A ```mysql_query:``` section in ```configuration.yaml``` is not imported any more; Home Assistant reports it as unsupported and nothing else happens. Add the connection in the UI and remove the section. Connections that were imported earlier are normal connections already and keep working.
 3. **```execute``` is for administrators.** A call made on behalf of a user who is not an administrator is refused. Automations are not affected. If a dashboard lets such a user cause a write, move the write into an automation and let the dashboard trigger it; see [Who may call what](#who-may-call-what). ```query``` is not restricted.
 4. **Some settings moved.** Changing where a connection connects (host, port, credentials, database, charset, collation, TLS) is now **Reconfigure**, in the menu of the connection. The query timeout, the row limit, autocommit and the read-only switch stay under **Configure**. Your connections are converted automatically the first time 4.0.0 starts.
 5. **You cannot go back to 3.x without re-creating the connections.** The conversion in (4) is one way, and 3.x would not find its settings where it looks for them. Home Assistant refuses to load a converted connection in 3.x instead of running it with the wrong settings; remove it and add it again to downgrade. Make a backup before you update if you may want to go back.
+6. **Templates in ```values``` are rendered once, by Home Assistant.** Automations, scripts and the developer tools are not affected: Home Assistant renders their templates before the call, with the same data types as before. The integration no longer renders them a second time, which let text that came out of a template, such as a sensor state that reads ```{{ ... }}```, run as a template of its own. A dashboard button or an API call that puts a template in ```values``` directly now has it stored as text; let the button run a script that makes the call. See [Templates keep their data type](#templates-keep-their-data-type).
 
 One thing to check: ```query``` is stricter about what counts as reading. A ```WITH ... UPDATE``` or ```WITH ... DELETE``` (MySQL 8) and a ```SELECT ... INTO OUTFILE``` used to pass as reading and ran through ```query```; they are refused there now and belong to ```execute```. Every statement through ```query``` also runs in a read-only transaction now.
 
