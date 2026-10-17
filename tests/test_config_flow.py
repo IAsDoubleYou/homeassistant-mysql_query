@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+import logging
 from unittest.mock import AsyncMock, patch
 
 from aiomysql import Error as MySQLError
@@ -130,6 +131,38 @@ async def test_user_flow_cannot_connect(hass: HomeAssistant) -> None:
     assert (
         "Can't connect to MySQL server" in result["description_placeholders"]["error"]
     )
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        MySQLError(2003, "Can't connect to MySQL server"),
+        MySQLError(1045, "Access denied"),
+        TLSUnavailableError("not encrypted"),
+    ],
+)
+async def test_user_flow_does_not_log_what_the_form_shows(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture, error: Exception
+) -> None:
+    """A failure the form reports is not logged as an error as well."""
+    with patch(
+        "custom_components.mysql_query.config_flow.async_test_connection",
+        AsyncMock(side_effect=error),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], USER_INPUT
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert not [
+        record
+        for record in caplog.records
+        if record.name.startswith("custom_components.mysql_query")
+        and record.levelno >= logging.WARNING
+    ]
 
 
 async def test_user_flow_unknown_error(hass: HomeAssistant) -> None:

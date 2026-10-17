@@ -80,12 +80,16 @@ async def _async_validate(config: dict[str, Any]) -> tuple[str | None, str]:
 
     Returns the error key to show on the form, and the driver message that
     goes with it. Causes that speak for themselves come without a message.
+
+    The form is where the failure is reported, so it is only logged at debug
+    level; an error in the log would repeat what the user is already looking
+    at. Only an unexpected exception is logged as an error, with its traceback.
     """
     try:
         await async_test_connection(config)
     except TLSUnavailableError as err:
         # The settings themselves are fine; the server just did not encrypt.
-        _LOGGER.error("TLS requested but not established: %s", err)
+        _LOGGER.debug("TLS requested but not established: %s", err)
         return "tls_unavailable", ""
     except (Error, OSError, TimeoutError) as err:
         errno, _ = error_details(err)
@@ -96,7 +100,7 @@ async def _async_validate(config: dict[str, Any]) -> tuple[str | None, str]:
         # A refused connection, a timeout and a rejected charset all end up
         # here and each needs a different fix, so the reason from the driver
         # is shown alongside the generic advice.
-        _LOGGER.error("MySQL connection error: %s", err)
+        _LOGGER.debug("MySQL connection error: %s", err)
         return "cannot_connect", _error_detail(err)
     except Exception as err:
         _LOGGER.exception("Unexpected exception")
