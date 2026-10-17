@@ -48,6 +48,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The unused `cannot_connect` abort reason from the translations.
 
+### Fixed
+
+- **A cancelled call no longer hands a busy connection back to the pool.** When the automation that made a call was stopped, or Home Assistant shut down, while the statement ran, the connection went back to the pool with the statement still in flight, and the next call on it could read the leftovers. It is dropped now, as after a timeout.
+
 ### Migration
 
 - **Writing through `query`:** a `WITH ... UPDATE`, a `WITH ... DELETE` or a `SELECT ... INTO OUTFILE` sent to `query` is refused now. Send it to `execute`.

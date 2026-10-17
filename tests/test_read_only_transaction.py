@@ -185,6 +185,74 @@ async def test_a_timeout_does_not_wait_to_restore_the_database(
     assert connection.selected_dbs == ["other_db"]
 
 
+async def test_a_timeout_while_the_transaction_starts_drops_the_connection(
+    hass: HomeAssistant,
+) -> None:
+    """Cut off before the statement ran, nothing more is asked of the connection.
+
+    Not even the switch back to the database of the connection, which would
+    wait on the very connection that just stopped answering.
+    """
+
+    async def hang(statement: str) -> None:
+        await asyncio.sleep(3600)
+
+    connection = FakeConnection(_select_cursor([], ["id"]))
+    connection.on_control = hang
+    pool = FakePool(connection)
+    await _setup_entry(hass, pool, data={**ENTRY_DATA, CONF_QUERY_TIMEOUT: 0})
+
+    with pytest.raises(HomeAssistantError, match="timed out"):
+        await _call(
+            hass, SERVICE_QUERY, {ATTR_QUERY: "SELECT 1", ATTR_DB4QUERY: "other_db"}
+        )
+
+    assert connection.events == ["USE other_db", START]
+    assert connection.closed
+    assert pool.released == 0
+
+
+@pytest.mark.parametrize(
+    ("service", "statement", "events"),
+    [
+        (SERVICE_QUERY, "SELECT 1", ["USE other_db", START, "SELECT 1"]),
+        (SERVICE_EXECUTE, "DELETE FROM t", ["USE other_db", "DELETE FROM t"]),
+    ],
+)
+async def test_a_call_cancelled_by_its_caller_drops_the_connection(
+    hass: HomeAssistant, service: str, statement: str, events: list[str]
+) -> None:
+    """A caller that stops waiting leaves the statement in flight.
+
+    An automation that is stopped, or Home Assistant shutting down, cancels
+    the call while the statement is still on the wire. That is not a timeout
+    of the integration, but it leaves the connection in the same state:
+    handing it back would let the next call read the leftovers.
+    """
+    started = asyncio.Event()
+
+    async def hang(query: str) -> None:
+        started.set()
+        await asyncio.sleep(3600)
+
+    connection = FakeConnection(_select_cursor([], ["id"], on_execute=hang))
+    pool = FakePool(connection)
+    await _setup_entry(hass, pool)
+
+    call = hass.async_create_task(
+        _call(hass, service, {ATTR_QUERY: statement, ATTR_DB4QUERY: "other_db"})
+    )
+    await started.wait()
+    call.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await call
+
+    # Nothing more was sent on it: no rollback, no switch back.
+    assert connection.events == events
+    assert connection.closed
+    assert pool.released == 0
+
+
 async def test_a_connection_that_cannot_roll_back_is_dropped(
     hass: HomeAssistant,
 ) -> None:

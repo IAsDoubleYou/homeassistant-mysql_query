@@ -128,9 +128,11 @@ class FakeControlCursor:
         self.connection = connection
 
     async def execute(self, query: str, args: Any = None) -> None:
-        """Record the control statement."""
+        """Record the control statement, then run the hook of the connection."""
         self.connection.control_statements.append(query)
         self.connection.events.append(query)
+        if self.connection.on_control is not None:
+            await self.connection.on_control(query)
 
     async def __aenter__(self) -> FakeControlCursor:
         """Enter the cursor context."""
@@ -169,6 +171,9 @@ class FakeConnection:
         self.control_statements: list[str] = []
         self.events: list[str] = []
         self.cursor_obj.events = self.events
+        # Awaited after a control statement is recorded, so a test can make
+        # one hang, like the on_execute hook of the cursor does for the query.
+        self.on_control: Callable[[str], Awaitable[None]] | None = None
 
     def cursor(self, *cursor_classes: type) -> FakeCursor | FakeControlCursor:
         """Return the cursor for the query, or a control cursor for a plain one."""

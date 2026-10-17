@@ -439,6 +439,21 @@ async def _async_end_read_only(conn: aiomysql.Connection) -> None:
         conn.close()
 
 
+async def _async_tidy_connection(
+    conn: aiomysql.Connection, *, read_only: bool, database: str | None
+) -> None:
+    """Undo what a call set up on its connection, before it goes back to the pool.
+
+    Closes the read-only transaction, and points the connection back at
+    ``database`` when the call switched away from it. Each step drops a
+    connection it cannot put right.
+    """
+    if read_only:
+        await _async_end_read_only(conn)
+    if database is not None:
+        await _async_restore_database(conn, database)
+
+
 async def _async_run_statement(  # noqa: PLR0913
     instance: MySQLInstance,
     query: str,
@@ -458,6 +473,14 @@ async def _async_run_statement(  # noqa: PLR0913
     stays open on the connection that goes back to the pool. (aiomysql drops
     a connection that is returned with a transaction open, which with
     autocommit off used to happen after every SELECT.)
+
+    A call can end before its statement does: through its own timeout, or
+    because whoever made it stopped waiting, such as an automation that was
+    stopped or Home Assistant shutting down. Its connection is dropped then,
+    not tidied and released. Awaiting anything more on a connection that may
+    not answer could hang past the very limit that just elapsed, and handing
+    it back would let the next call read the leftovers of a statement still in
+    flight. The server discards whatever was open on it.
     """
     default_db = instance.config.get(CONF_MYSQL_DB)
     timeout = int(instance.config.get(CONF_QUERY_TIMEOUT, DEFAULT_QUERY_TIMEOUT))
@@ -466,9 +489,10 @@ async def _async_run_statement(  # noqa: PLR0913
     switch_db = bool(
         db4query and default_db and db4query.lower() != str(default_db).lower()
     )
+    restore_db = str(default_db) if switch_db else None
 
     conn: aiomysql.Connection | None = None
-    timed_out = False
+    abandoned = False
     try:
         # Bounds the whole call, not only the wait for a free connection: a
         # statement that stops getting answers after that must not hold its
@@ -483,36 +507,28 @@ async def _async_run_statement(  # noqa: PLR0913
 
             if switch_db:
                 await conn.select_db(db4query)
-            # Set when the timeout cancels the call. The connection is dropped
-            # then, and the server discards what is open on it; awaiting
-            # anything more on a connection that may not answer would hang
-            # past the very limit that just elapsed.
-            cancelled = False
+            # Tidied after the statement, whether that succeeded or failed.
+            # Not after a cancellation: CancelledError is no Exception, so it
+            # passes this handler, and the connection is dropped below.
             try:
                 if read_only:
                     await _async_begin_read_only(conn)
-                try:
-                    return await _async_execute_statement(
-                        conn, query, row_limit, db4query or default_db, values
-                    )
-                except asyncio.CancelledError:
-                    cancelled = True
-                    raise
-                finally:
-                    if read_only and not cancelled:
-                        await _async_end_read_only(conn)
-            finally:
-                if switch_db and not cancelled:
-                    await _async_restore_database(conn, str(default_db))
-    except TimeoutError:
-        timed_out = True
+                result = await _async_execute_statement(
+                    conn, query, row_limit, db4query or default_db, values
+                )
+            except Exception:
+                await _async_tidy_connection(
+                    conn, read_only=read_only, database=restore_db
+                )
+                raise
+            await _async_tidy_connection(conn, read_only=read_only, database=restore_db)
+            return result
+    except TimeoutError, asyncio.CancelledError:
+        abandoned = True
         raise
     finally:
         if conn is not None:
-            if timed_out:
-                # It may still have a statement in flight on the wire; handing
-                # it back to the pool would let the next call read its
-                # leftovers, so it is dropped instead of released.
+            if abandoned:
                 conn.close()
             else:
                 instance.pool.release(conn)
