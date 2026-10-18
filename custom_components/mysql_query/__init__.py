@@ -444,14 +444,16 @@ async def _async_run_statement(  # noqa: PLR0913
 ) -> QueryResult:
     """Run a statement on a connection borrowed from the pool.
 
-    With ``read_only`` the statement runs inside START TRANSACTION READ ONLY,
-    which the server enforces: any change to a table fails with error 1792,
-    whatever the statement looks like. That is the backstop behind the
-    classifier in sql.py, which only reads the text and cannot see what a
-    stored function does. The transaction is always rolled back, so nothing
-    stays open on the connection that goes back to the pool. (aiomysql drops
-    a connection that is returned with a transaction open, which with
-    autocommit off used to happen after every SELECT.)
+    With ``read_only`` the statement runs inside START TRANSACTION READ ONLY:
+    while it lasts, the server refuses any change to a table with error 1792.
+    That is an extra layer behind the classifier in sql.py, which only reads
+    the text and cannot see what a stored function does. It is not a
+    permission system: a statement that slips its own COMMIT past the
+    classifier ends the transaction early, and what follows runs with the
+    rights of the database user. The transaction is always rolled back, so
+    nothing stays open on the connection that goes back to the pool.
+    (aiomysql drops a connection that is returned with a transaction open,
+    which with autocommit off used to happen after every SELECT.)
 
     A call can end before its statement does: through its own timeout, or
     because whoever made it stopped waiting, such as an automation that was

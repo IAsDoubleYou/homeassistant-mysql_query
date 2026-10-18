@@ -344,9 +344,11 @@ def is_read_only(statement: str) -> bool:
       which a SELECT is otherwise allowed to do. What is inside quotes and
       comments does not count, but the content of an executable comment does.
 
-    This is a guard against reaching for the wrong service. It cannot see what
-    a stored function does, so the integration also runs everything it lets
-    through query inside a read-only transaction, which the server enforces.
+    This is a guard against reaching for the wrong service, not a permission
+    system. It cannot see what a stored function does, so the integration
+    also runs everything it lets through query inside a read-only
+    transaction. What a call can really do is decided by the rights of the
+    database user.
     """
     inner, runs = unwrap_prefixes(statement)
 
