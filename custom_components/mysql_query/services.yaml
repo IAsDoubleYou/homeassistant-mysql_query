@@ -72,8 +72,7 @@ execute:
           integration: mysql_query
     raise_on_error:
       name: "Raise on error"
-      description: "Stop the caller with an error when the statement fails, instead of reporting it in the response as succeeded false. Off by default for this action; switch it on to get the behaviour Query has."
+      description: "Stop the caller with an error when the statement fails, instead of reporting it in the response as succeeded false. By default this action reports the failure when the call asks for the response, and raises when it does not; switch it on to always get the behaviour Query has."
       required: false
-      default: false
       selector:
         boolean:

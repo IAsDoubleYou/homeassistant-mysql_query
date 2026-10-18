@@ -60,8 +60,10 @@ from .db import (
     ERRNO_ACCESS_DENIED,
     ERRNO_DATABASE_ACCESS_DENIED,
     ERRNO_UNKNOWN_DATABASE,
+    TRANSIENT_ERRNOS,
     TLSUnavailableError,
     async_create_pool,
+    async_test_connection,
     async_verify_tls,
     error_details,
     merged_config,
@@ -90,8 +92,10 @@ QUERY_SCHEMA: Final = vol.Schema(
     }
 )
 
+# No default here: for execute it depends on whether the call asks for the
+# response, which only _raises_on_error can see.
 EXECUTE_SCHEMA: Final = QUERY_SCHEMA.extend(
-    {vol.Optional(ATTR_RAISE_ON_ERROR, default=False): cv.boolean}
+    {vol.Optional(ATTR_RAISE_ON_ERROR): cv.boolean}
 )
 
 
@@ -155,11 +159,13 @@ def _service_response(call: ServiceCall, response: dict[str, Any]) -> dict[str, 
 def _raises_on_error(call: ServiceCall) -> bool:
     """Return whether a failed statement should stop the caller.
 
-    The default differs per service, so each keeps what it always did: query
-    raises, execute reports the failure in its response. Either can be told
-    to do the other, which is what a call moving between the two needs.
+    The default differs per service: query raises, execute reports the
+    failure in its response. But a report only reaches a caller that asked
+    for the response, so an execute call without one raises as well; it would
+    otherwise pass as a success. Either can be told to do the other, which is
+    what a call moving between the two needs.
     """
-    default = call.service == SERVICE_QUERY
+    default = call.service == SERVICE_QUERY or not call.return_response
     return bool(call.data.get(ATTR_RAISE_ON_ERROR, default))
 
 
@@ -449,11 +455,13 @@ async def _async_run_statement(  # noqa: PLR0913
 
     A call can end before its statement does: through its own timeout, or
     because whoever made it stopped waiting, such as an automation that was
-    stopped or Home Assistant shutting down. Its connection is dropped then,
-    not tidied and released. Awaiting anything more on a connection that may
-    not answer could hang past the very limit that just elapsed, and handing
-    it back would let the next call read the leftovers of a statement still in
-    flight. The server discards whatever was open on it.
+    stopped or Home Assistant shutting down. Its connection is closed then,
+    not tidied. Awaiting anything more on a connection that may not answer
+    could hang past the very limit that just elapsed, and pooling it again
+    would let the next call read the leftovers of a statement still in flight.
+    The server discards whatever was open on it. The closed connection is
+    still handed to release(): only that frees its slot in the pool, and
+    aiomysql does not pool a closed connection again.
     """
     default_db = instance.config.get(CONF_MYSQL_DB)
     timeout = int(instance.config.get(CONF_QUERY_TIMEOUT, DEFAULT_QUERY_TIMEOUT))
@@ -503,8 +511,7 @@ async def _async_run_statement(  # noqa: PLR0913
         if conn is not None:
             if abandoned:
                 conn.close()
-            else:
-                instance.pool.release(conn)
+            instance.pool.release(conn)
 
 
 def _setup_error(entry: ConfigEntry, err: BaseException) -> IntegrationError:
@@ -516,6 +523,9 @@ def _setup_error(entry: ConfigEntry, err: BaseException) -> IntegrationError:
     Refused credentials start the reauth flow, because only the user can fix
     those. A database that does not exist, or that this user may not use, is
     not fixed by a new password and not by waiting, so it is a plain error.
+    So is any other refusal by the server, such as a host the account may not
+    connect from, a locked account or an expired password: retrying those
+    would only go on forever.
 
     Home Assistant logs the exception it is given, so nothing is logged here.
     """
@@ -534,9 +544,17 @@ def _setup_error(entry: ConfigEntry, err: BaseException) -> IntegrationError:
             translation_key="unknown_database",
             translation_placeholders=placeholders,
         )
-    return ConfigEntryNotReady(
+    # An OSError carries an operating system errno, not a MySQL one, and
+    # always means the server could not be reached.
+    if isinstance(err, OSError) or errno in TRANSIENT_ERRNOS:
+        return ConfigEntryNotReady(
+            translation_domain=DOMAIN,
+            translation_key="cannot_connect",
+            translation_placeholders=placeholders,
+        )
+    return ConfigEntryError(
         translation_domain=DOMAIN,
-        translation_key="cannot_connect",
+        translation_key="connection_refused",
         translation_placeholders=placeholders,
     )
 
@@ -642,6 +660,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: MySQLQueryConfigEntry) -
     )
 
     return True
+
+
+async def _async_credentials_refused(instance: MySQLInstance) -> bool:
+    """Return whether the server refuses the stored credentials on a new login.
+
+    Error 1045 on a call does not only mean that: MySQL and MariaDB also
+    answer a statement that needs the FILE privilege, such as LOAD DATA
+    INFILE, with it. Only a fresh login tells the two apart. Anything else
+    that goes wrong with that login says nothing about the credentials.
+    """
+    try:
+        await async_test_connection(instance.config)
+    except aiomysql.Error as err:
+        return error_details(err)[0] == ERRNO_ACCESS_DENIED
+    except OSError, TimeoutError, TLSUnavailableError:
+        return False
+    return False
 
 
 @callback
@@ -753,11 +788,11 @@ async def _async_handle_service(
 
     except aiomysql.Error as err:
         errno, message = error_details(err)
-        if errno == ERRNO_ACCESS_DENIED:
-            # The pool reconnected and the server no longer accepts the
-            # credentials, for instance after the password was changed there.
-            # Setup would end up in the same place on the next reload, so ask
-            # for new ones now; a flow that is already open is not repeated.
+        if errno == ERRNO_ACCESS_DENIED and await _async_credentials_refused(instance):
+            # The server no longer accepts the credentials, for instance after
+            # the password was changed there. Setup would end up in the same
+            # place on the next reload, so ask for new ones now; a flow that
+            # is already open is not repeated.
             _async_start_reauth(hass, instance)
         if _raises_on_error(call):
             _LOGGER.debug("MySQL error on %s, errno %s", instance.title, errno)

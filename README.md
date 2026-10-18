@@ -90,8 +90,9 @@ There are two places, because two different things can change:
 ### When the database refuses or cannot be reached
 
 - **Not reachable** (the server is down, still starting, or the network is not up yet): Home Assistant retries the connection by itself, with growing pauses, so the connection comes up once the database does. The reason is in the log of Home Assistant itself.
-- **Credentials refused**: the connection stops and Home Assistant flags it as needing attention, with a form to enter the username and password again. It updates the existing connection; nothing is added.
+- **Credentials refused**: the connection stops and Home Assistant flags it as needing attention, with a form to enter the username and password again. It updates the existing connection; nothing is added. When a call is refused with the same error later on, the integration first logs in again with the stored credentials, and only asks for new ones when that is refused too: MySQL and MariaDB also answer a statement that needs the ```FILE``` privilege, such as ```LOAD DATA INFILE```, with "Access denied for user".
 - **Database does not exist, or the user may not use it**: the connection stops with a message saying so. A new password does not fix this, so no sign-in prompt appears; use **Reconfigure**.
+- **Any other refusal by the server**, such as a host the account may not connect from, a locked account or an expired password: the connection stops with the reason from the server. Waiting does not fix these, so it is not retried; fix the account on the server and reload the connection.
 - **TLS asked for but not offered by the server**: the connection stops with a message saying so, see [Encrypting the connection](#encrypting-the-connection).
 
 ### Configuration parameters
@@ -145,7 +146,7 @@ A connection can be marked **Read-only**, in the setup form and under **Configur
 
 This is a different kind of protection from the split between the two services. The service split catches reaching for the wrong *verb*: a ```DELETE``` sent to ```query``` is refused because ```query``` does not write. The read-only flag catches reaching for the wrong *connection*: a perfectly well-formed ```DELETE``` sent to ```execute``` is refused because that connection is not supposed to be written to at all. For ```execute``` it needs no statement analysis: the call is refused before the statement is looked at.
 
-It exists for the connection you created to feed dashboards or reports. Mark it read-only and a write meant for your application database cannot land in it by mistake through ```execute```, however the statement is spelled. ```query``` is held to reading as well, see [How reading is held to reading](#how-reading-is-held-to-reading).
+It exists for the connection you created to feed dashboards or reports. Mark it read-only and a write meant for your application database cannot land in it by mistake through ```execute```, however the statement is spelled. ```query``` is held to reading as well, see [How reading is held to reading](#how-reading-is-held-to-reading). For a connection that must never write, also give its database user ```SELECT``` rights only, see [Security best practice](#security-best-practice).
 
 **Off by default**, so an existing connection keeps working exactly as it did. Turning it on affects only ```execute```; ```query``` keeps working, which is the entire point.
 
@@ -173,12 +174,12 @@ Connections are config entries only; there is no ```mysql_query:``` section for 
 
 ## Services
 
-The integration registers two actions. ```query``` is a **responding action**: it exists to return rows, so a ```response_variable``` is required to capture the output. ```execute``` can respond too, but does not have to: call it without a ```response_variable``` when all you want is the write, and add one when you want to know what it affected.
+The integration registers two actions. ```query``` is a **responding action**: it exists to return rows, so a ```response_variable``` is required to capture the output. ```execute``` can respond too, but does not have to: call it without a ```response_variable``` when all you want is the write, and add one when you want to know what it affected. Without one, a failing write stops the automation or script, because there is no response to report it in.
 
 | Service | Use it for | Returns |
 | :--- | :--- | :--- |
 | ```mysql_query.query``` | Reading only: ```SELECT```, ```WITH``` (followed by a ```SELECT```), ```SHOW```, ```DESCRIBE```, ```EXPLAIN```, ```CHECKSUM TABLE```, ```HELP```, and the MySQL 8 ```TABLE```/```VALUES``` shorthands. Refuses anything that changes data or schema. | The rows under ```result```, plus ```succeeded```, ```rows_found```, ```column_names```, ```execution_time_ms``` and ```error```. Raises on a database error unless ```raise_on_error: false```. |
-| ```mysql_query.execute``` | Everything that changes something: ```INSERT```, ```UPDATE```, ```DELETE```, DDL, and maintenance statements such as ```ANALYZE TABLE``` or ```OPTIMIZE```. Refuses a read-only statement. | Full metadata: row counts, generated id, timing and errors, when you ask for the response. Reports a database error in the response instead of raising, unless ```raise_on_error: true```. |
+| ```mysql_query.execute``` | Everything that changes something: ```INSERT```, ```UPDATE```, ```DELETE```, DDL, and maintenance statements such as ```ANALYZE TABLE``` or ```OPTIMIZE```. Refuses a read-only statement. | Full metadata: row counts, generated id, timing and errors, when you ask for the response. Reports a database error in that response instead of raising, unless ```raise_on_error: true```. Without a ```response_variable``` a database error raises. |
 
 <details>
 <summary><strong>Which statements count as read-only</strong> — the exact list, and how <code>EXPLAIN</code> and <code>ANALYZE</code> are handled</summary>
@@ -211,9 +212,17 @@ Options such as ```FORMAT=JSON``` in between are skipped.
 Two checks stand between a statement and the database when it goes through ```query```:
 
 1. **The text is checked.** Only a statement that starts with a reading keyword passes. A ```WITH``` passes only when the statement behind its list of common table expressions is a ```SELECT```, ```TABLE``` or ```VALUES```: MySQL 8 also accepts ```WITH ... UPDATE``` and ```WITH ... DELETE```. ```INTO OUTFILE``` and ```INTO DUMPFILE``` count as writes. What is inside quotes and ordinary comments does not count. What is inside a comment the server executes anyway, ```/*! ... */``` and ```/*M! ... */```, does: it is read as the code it is.
-2. **The server enforces it.** Every statement sent through ```query``` runs inside ```START TRANSACTION READ ONLY``` and is rolled back afterwards, so the server itself refuses to change a table (error 1792), however the statement is written and also when a stored function tries. This needs MySQL 5.6.5 or MariaDB 10.0 or newer.
+2. **The server holds the statement to reading.** Every statement sent through ```query``` runs inside ```START TRANSACTION READ ONLY``` and is rolled back afterwards, so the server itself refuses to change a table (error 1792), also when a stored function tries. This needs MySQL 5.6.5 or MariaDB 10.0 or newer.
 
-What this does not cover: the transaction concerns tables, so it does not stop a statement that writes a file (a MariaDB server writes the file inside a read-only transaction as well, which is why the first check refuses ```INTO OUTFILE``` itself), and it does not limit how long or how heavy a statement is. The first check also cannot know what a stored function does. Reading is not harmless either: ```query``` is open to every user, and ```LOAD_FILE()``` reads a file on the database server. Do not give the database user the ```FILE``` privilege, which both ```LOAD_FILE()``` and ```INTO OUTFILE``` need. If a connection must never write, give its database user ```SELECT``` rights only, and consider marking the connection [read-only](#read-only-connections). ```execute``` has none of this: writing is what it is for, which is why it is for [administrators](#who-may-call-what).
+What this does not cover: the transaction concerns tables, so it does not stop a statement that writes a file (a MariaDB server writes the file inside a read-only transaction as well, which is why the first check refuses ```INTO OUTFILE``` itself), and it does not limit how long or how heavy a statement is. The first check also cannot know what a stored function does. ```execute``` has none of this: writing is what it is for, which is why it is for [administrators](#who-may-call-what).
+
+#### Security best practice
+
+The two checks above keep a call on the right service; they are not a permission system. The text check is a guard against mistakes, not a parser that knows every trick of the SQL dialect, and a statement written to slip a ```COMMIT``` past it ends the read-only transaction early. What follows then runs with whatever rights the database user has. ```query``` is open to every Home Assistant user, so what a call can do is decided where it belongs: by the rights of the database user.
+
+- **Give each connection a database user with only the rights it needs.** If ```query``` is used from dashboards or by users who are not administrators, give that connection a user with ```SELECT``` rights only, on the tables it needs. Add a second connection with its own user for ```execute```.
+- **Do not grant the ```FILE``` privilege.** ```LOAD_FILE()``` reads a file on the database server and ```INTO OUTFILE``` writes one; both need it.
+- **Mark a connection that should never write as [read-only](#read-only-connections).** ```execute``` is then refused on it, whatever the statement.
 
 Both services accept exactly the same five fields:
 
@@ -223,7 +232,7 @@ Both services accept exactly the same five fields:
 | ```values``` | No | List of values for the ```%s``` placeholders in ```query```, in the order the placeholders appear — see [Parameterized queries](#parameterized-queries-with-values). |
 | ```db4query``` | No | Run this single statement against a different database **on the same server**, instead of the configured default database. |
 | ```config_entry``` | No | The id of the connection to use when you have configured more than one. If omitted, the first loaded connection is used. |
-| ```raise_on_error``` | No | Whether a failing statement stops the caller with an error (```true```) or is reported in the response (```false```). The default differs: ```true``` for ```query```, ```false``` for ```execute```. See [Error handling at a glance](#error-handling-at-a-glance). |
+| ```raise_on_error``` | No | Whether a failing statement stops the caller with an error (```true```) or is reported in the response (```false```). The default differs: ```true``` for ```query```; for ```execute``` ```false``` when the call asks for the response and ```true``` when it does not. See [Error handling at a glance](#error-handling-at-a-glance). |
 
 > **Note:** There is no per-call row limit field. The row limit is a property of the connection (```mysql_row_limit```) — see [Example 1c](#example-1c-controlling-how-many-rows-come-back).
 
@@ -441,7 +450,7 @@ error:
   sqlstate: null           # String: reserved, always null since 2.0.0
 ```
 
-By default a failing statement does **not** raise here: the call returns ```succeeded: false``` with the details in ```error```, so your automation keeps running and can decide what to do. Set ```raise_on_error: true``` on the call to have it stop the automation instead, which is how ```mysql_query.query``` behaves by default.
+By default a failing statement does **not** raise here when the call has a ```response_variable```: the call returns ```succeeded: false``` with the details in ```error```, so your automation keeps running and can decide what to do. Set ```raise_on_error: true``` on the call to have it stop the automation instead, which is how ```mysql_query.query``` behaves by default. A call **without** a ```response_variable``` raises on a failure, since nobody would see the response that reports it; set ```raise_on_error: false``` if that step may fail without stopping anything.
 
 #### Example 2a: Storing a sensor value in your own table
 
@@ -558,9 +567,9 @@ before they reach your automation:
 
 ### Error handling at a glance
 
-Whether a failure stops your automation or comes back in the response is decided by ```raise_on_error```, which both services accept. Only the default differs: ```query``` defaults to ```true``` (it raises) and ```execute``` to ```false``` (it reports). Set the flag explicitly and the other service's behaviour is what you get.
+Whether a failure stops your automation or comes back in the response is decided by ```raise_on_error```, which both services accept. Only the default differs: ```query``` defaults to ```true``` (it raises) and ```execute``` to ```false``` (it reports), except that an ```execute``` call without a ```response_variable``` defaults to ```true```, because there is no response to report in. Set the flag explicitly and that is what you get.
 
-| Situation | ```raise_on_error: true``` (query default) | ```raise_on_error: false``` (execute default) |
+| Situation | ```raise_on_error: true``` (query default) | ```raise_on_error: false``` (execute default with a ```response_variable```) |
 | :--- | :--- | :--- |
 | Statement succeeds | Returns the response, ```succeeded: true``` | Returns the response, ```succeeded: true``` |
 | SQL error (syntax, permissions, …) | Raises; the automation stops | Returns ```succeeded: false``` and fills ```error``` |

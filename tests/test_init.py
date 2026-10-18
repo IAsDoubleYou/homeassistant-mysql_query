@@ -138,6 +138,38 @@ async def test_setup_fails_without_reauth_for_an_unusable_database(
     assert not list(hass.config_entries.flow.async_progress_by_handler(DOMAIN))
 
 
+@pytest.mark.parametrize("errno", [1040, 1053, 1203, 2002, 2005, 2006, 2013])
+async def test_setup_retries_when_the_server_is_busy_or_the_link_breaks(
+    hass: HomeAssistant, errno: int
+) -> None:
+    """A full server, one shutting down or a broken link goes away by itself."""
+    entry = await _setup_failing(hass, MySQLError(errno, "Try again later"))
+
+    assert entry.state is ConfigEntryState.SETUP_RETRY
+
+
+@pytest.mark.parametrize(
+    ("errno", "message"),
+    [
+        (1130, "Host 'ha' is not allowed to connect to this MariaDB server"),
+        (3118, "Access denied for user 'u'@'h'. Account is locked."),
+        (1862, "Your password has expired."),
+        (1273, "Unknown collation: 'nope'"),
+    ],
+)
+async def test_setup_fails_without_retrying_when_the_server_refuses(
+    hass: HomeAssistant, errno: int, message: str
+) -> None:
+    """Waiting does not fix a refusal; retrying it would go on forever.
+
+    Not a reauth either: the credentials are not what the server objects to.
+    """
+    entry = await _setup_failing(hass, MySQLError(errno, message))
+
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+    assert not list(hass.config_entries.flow.async_progress_by_handler(DOMAIN))
+
+
 async def test_setup_does_not_log_its_own_traceback(
     hass: HomeAssistant, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -905,6 +937,41 @@ async def test_execute_reports_errors_in_the_response_by_default(
     assert response["error"]["errno"] == 1064
 
 
+async def test_execute_without_a_response_raises_on_error_by_default(
+    hass: HomeAssistant,
+) -> None:
+    """A report in a response nobody asked for would pass as a success.
+
+    A script step that only writes takes no response_variable, so the failure
+    has to stop it instead.
+    """
+    cursor = FakeCursor(error=MySQLError(1062, "Duplicate entry"))
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    with pytest.raises(HomeAssistantError, match="Duplicate entry"):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_EXECUTE,
+            {ATTR_QUERY: "INSERT INTO test VALUES (1)"},
+            blocking=True,
+        )
+
+
+async def test_execute_without_a_response_can_be_told_not_to_raise(
+    hass: HomeAssistant,
+) -> None:
+    """An explicit raise_on_error false is still honoured."""
+    cursor = FakeCursor(error=MySQLError(1062, "Duplicate entry"))
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_EXECUTE,
+        {ATTR_QUERY: "INSERT INTO test VALUES (1)", ATTR_RAISE_ON_ERROR: False},
+        blocking=True,
+    )
+
+
 async def test_raise_on_error_defaults_differ_per_service(
     hass: HomeAssistant,
 ) -> None:
@@ -1173,20 +1240,25 @@ async def test_refused_credentials_during_a_call_start_reauth(
     Setup would end up in the same place on the next reload, so the user is
     asked for new credentials right away, whatever raise_on_error says.
     """
-    cursor = FakeCursor(error=MySQLError(1045, "Access denied for user 'u'@'h'"))
+    refused = MySQLError(1045, "Access denied for user 'u'@'h'")
+    cursor = FakeCursor(error=refused)
     entry = await _setup_entry(hass, FakePool(FakeConnection(cursor)))
 
-    try:
-        await hass.services.async_call(
-            DOMAIN,
-            SERVICE_EXECUTE,
-            {ATTR_QUERY: "DELETE FROM test", ATTR_RAISE_ON_ERROR: raise_on_error},
-            blocking=True,
-            return_response=True,
-        )
-    except HomeAssistantError:
-        assert raise_on_error
-    await hass.async_block_till_done()
+    with patch(
+        "custom_components.mysql_query.async_test_connection",
+        AsyncMock(side_effect=refused),
+    ):
+        try:
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_EXECUTE,
+                {ATTR_QUERY: "DELETE FROM test", ATTR_RAISE_ON_ERROR: raise_on_error},
+                blocking=True,
+                return_response=True,
+            )
+        except HomeAssistantError:
+            assert raise_on_error
+        await hass.async_block_till_done()
 
     flows = list(hass.config_entries.flow.async_progress_by_handler(DOMAIN))
     assert [(f["context"]["source"], f["context"]["entry_id"]) for f in flows] == [
@@ -1196,20 +1268,60 @@ async def test_refused_credentials_during_a_call_start_reauth(
 
 async def test_repeated_refusals_open_one_reauth_flow(hass: HomeAssistant) -> None:
     """A flow that is already open is not started a second time."""
-    cursor = FakeCursor(error=MySQLError(1045, "Access denied"))
+    refused = MySQLError(1045, "Access denied")
+    cursor = FakeCursor(error=refused)
     await _setup_entry(hass, FakePool(FakeConnection(cursor)))
 
-    for _ in range(3):
-        await hass.services.async_call(
+    with patch(
+        "custom_components.mysql_query.async_test_connection",
+        AsyncMock(side_effect=refused),
+    ):
+        for _ in range(3):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_EXECUTE,
+                {ATTR_QUERY: "DELETE FROM test"},
+                blocking=True,
+                return_response=True,
+            )
+            await hass.async_block_till_done()
+
+    assert len(list(hass.config_entries.flow.async_progress_by_handler(DOMAIN))) == 1
+
+
+@pytest.mark.parametrize(
+    "login_error",
+    [None, OSError("unreachable"), TimeoutError()],
+    ids=["login works", "unreachable", "timeout"],
+)
+async def test_a_refusal_the_credentials_survive_does_not_start_reauth(
+    hass: HomeAssistant, login_error: Exception | None
+) -> None:
+    """Error 1045 is also what a missing FILE privilege gets.
+
+    LOAD DATA INFILE without that privilege is answered with "Access denied
+    for user", although the credentials are fine. A fresh login decides, and
+    one that does not get an answer either says nothing about them.
+    """
+    cursor = FakeCursor(error=MySQLError(1045, "Access denied for user 'u'@'h'"))
+    await _setup_entry(hass, FakePool(FakeConnection(cursor)))
+
+    with patch(
+        "custom_components.mysql_query.async_test_connection",
+        AsyncMock(side_effect=login_error),
+    ) as login:
+        response = await hass.services.async_call(
             DOMAIN,
             SERVICE_EXECUTE,
-            {ATTR_QUERY: "DELETE FROM test"},
+            {ATTR_QUERY: "LOAD DATA INFILE 'x.csv' INTO TABLE test"},
             blocking=True,
             return_response=True,
         )
         await hass.async_block_till_done()
 
-    assert len(list(hass.config_entries.flow.async_progress_by_handler(DOMAIN))) == 1
+    assert login.await_count == 1
+    assert response["error"]["errno"] == 1045
+    assert not list(hass.config_entries.flow.async_progress_by_handler(DOMAIN))
 
 
 @pytest.mark.parametrize("errno", [1064, 1044, 1049, 2003])

@@ -105,6 +105,9 @@
         "unknown_database": {
             "message": "De database van \"{connection}\" bestaat niet, of de gebruiker heeft er geen toegang toe. Een nieuw wachtwoord lost dit niet op: controleer de databasenaam en de rechten van de gebruiker."
         },
+        "connection_refused": {
+            "message": "De databaseserver weigerde de verbinding van \"{connection}\": {error}. Wachten lost dit niet op: controleer het account op de server, zoals vanaf welke host het mag verbinden, of het geblokkeerd is en of het wachtwoord verlopen is."
+        },
         "cannot_connect": {
             "message": "Verbinden met \"{connection}\" is mislukt: {error}. Home Assistant probeert het zelf opnieuw."
         },
@@ -150,7 +153,7 @@
                 },
                 "raise_on_error": {
                     "name": "Fout opwerpen",
-                    "description": "Stop de aanroeper met een fout als het statement mislukt, in plaats van dit in de response te melden als succeeded false. Standaard uit bij deze actie; zet het aan voor het gedrag van Query."
+                    "description": "Stop de aanroeper met een fout als het statement mislukt, in plaats van dit in de response te melden als succeeded false. Standaard meldt deze actie de fout als de aanroep om de response vraagt, en werpt ze een fout op als dat niet zo is; zet het aan om altijd het gedrag van Query te krijgen."
                 }
             }
         },

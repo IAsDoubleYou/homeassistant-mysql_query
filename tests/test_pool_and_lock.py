@@ -221,9 +221,10 @@ async def test_query_timeout_is_reported(hass: HomeAssistant) -> None:
         )
 
     # The connection may still have a statement in flight on the wire, so it
-    # is dropped instead of being handed back for the next call to reuse.
+    # is closed instead of being pooled again for the next call to reuse. It
+    # is still released, which is what frees its slot in the pool.
     assert connection.closed
-    assert pool.released == 0
+    assert pool.released == 1
 
 
 async def test_db4query_switches_and_restores_the_database(

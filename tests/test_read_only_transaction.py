@@ -161,7 +161,8 @@ async def test_a_timeout_drops_the_connection_without_awaiting_it_again(
 
     assert connection.rollbacks == 0
     assert connection.closed
-    assert pool.released == 0
+    # Closed and still released: only release() frees its slot in the pool.
+    assert pool.released == 1
 
 
 async def test_a_timeout_does_not_wait_to_restore_the_database(
@@ -209,7 +210,8 @@ async def test_a_timeout_while_the_transaction_starts_drops_the_connection(
 
     assert connection.events == ["USE other_db", START]
     assert connection.closed
-    assert pool.released == 0
+    # Closed and still released: only release() frees its slot in the pool.
+    assert pool.released == 1
 
 
 @pytest.mark.parametrize(
@@ -250,7 +252,8 @@ async def test_a_call_cancelled_by_its_caller_drops_the_connection(
     # Nothing more was sent on it: no rollback, no switch back.
     assert connection.events == events
     assert connection.closed
-    assert pool.released == 0
+    # Closed and still released: only release() frees its slot in the pool.
+    assert pool.released == 1
 
 
 async def test_a_connection_that_cannot_roll_back_is_dropped(

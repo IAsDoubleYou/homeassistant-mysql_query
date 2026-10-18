@@ -85,6 +85,13 @@ ERRNO_DATABASE_ACCESS_DENIED = 1044
 ERRNO_ACCESS_DENIED = 1045
 ERRNO_UNKNOWN_DATABASE = 1049
 
+# Failures that say nothing about the settings, only that the server cannot be
+# used right now: the client could not reach it or lost the connection (2002
+# socket, 2003 TCP, 2005 host name, 2006 gone away, 2013 lost), or the server
+# is full or shutting down (1040, 1203 for this user, 1053). Waiting fixes
+# these; any other refusal by the server needs someone to change something.
+TRANSIENT_ERRNOS = frozenset({1040, 1053, 1203, 2002, 2003, 2005, 2006, 2013})
+
 
 def build_connection_kwargs(config: Mapping[str, Any]) -> dict[str, Any]:
     """Translate a config entry into aiomysql connection arguments."""

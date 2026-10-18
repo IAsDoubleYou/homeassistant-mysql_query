@@ -105,6 +105,9 @@
         "unknown_database": {
             "message": "The database of \"{connection}\" does not exist, or its user has no access to it. A new password does not fix this: check the database name and the privileges of the user."
         },
+        "connection_refused": {
+            "message": "The database server refused the connection of \"{connection}\": {error}. Waiting does not fix this: check the account on the server, such as the host it may connect from, whether it is locked, and whether its password has expired."
+        },
         "cannot_connect": {
             "message": "Could not connect to \"{connection}\": {error}. Home Assistant tries again by itself."
         },
@@ -150,7 +153,7 @@
                 },
                 "raise_on_error": {
                     "name": "Raise on error",
-                    "description": "Stop the caller with an error when the statement fails, instead of reporting it in the response as succeeded false. Off by default for this action; switch it on to get the behaviour Query has."
+                    "description": "Stop the caller with an error when the statement fails, instead of reporting it in the response as succeeded false. By default this action reports the failure when the call asks for the response, and raises when it does not; switch it on to always get the behaviour Query has."
                 }
             }
         },
