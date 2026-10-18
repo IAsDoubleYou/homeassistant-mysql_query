@@ -1,6 +1,6 @@
 # MySQL Query Service for Home Assistant
 
-[![HACS Custom][hacs_shield]][hacs]
+[![HACS Default][hacs_shield]][hacs]
 [![GitHub Latest Release][releases_shield]][latest_release]
 [![GitHub Downloads (latest Release)][downloads_latest_shield]][latest_release]
 [![GitHub All Releases][downloads_total_shield]][releases]
@@ -44,9 +44,11 @@ A Home Assistant custom component that talks to a MySQL or MariaDB database thro
 
 ### Option 1: Using HACS (recommended)
 
+MySQL Query Service is part of the default HACS repository, so there is no custom repository to add.
+
 1. Open HACS in your Home Assistant installation.
-2. Add this repository as a custom repository: ```https://github.com/IAsDoubleYou/homeassistant-mysql_query```
-3. Search for "MySQL Query" in HACS and install.
+2. Search for "MySQL Query" and open **MySQL Query Service**.
+3. Select **Download**, then restart Home Assistant.
 
 ### Option 2: Manual Installation
 
@@ -668,7 +670,7 @@ Two integrations, two different jobs. They can be installed side by side.
 
 See [CHANGELOG.md](CHANGELOG.md) for a full list of changes per version.
 
-[hacs_shield]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=flat-square
+[hacs_shield]: https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=flat-square
 [hacs]: https://github.com/hacs/integration
 [latest_release]: https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases/latest
 [releases_shield]: https://img.shields.io/github/v/release/IAsDoubleYou/homeassistant-mysql_query?style=flat-square
