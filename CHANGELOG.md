@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [4.0.0] - 2026-10-10
+## [4.0.0] - 2026-10-18
 
 **Breaking.** This release brings the integration in line with the latest Home Assistant and HACS quality and security requirements, in preparation for its inclusion in the default HACS repository. Several things behave differently; the Migration section below says what to do about each. Version 3.3.0 was never released and is part of this one.
 
