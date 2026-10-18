@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [4.0.0] - 2026-10-18
 
-**Breaking.** This release brings the integration in line with the latest Home Assistant and HACS quality and security requirements, in preparation for its inclusion in the default HACS repository. Several things behave differently; the Migration section below says what to do about each. Version 3.3.0 was never released and is part of this one.
+**Major release.** This release brings the integration in line with the latest Home Assistant and HACS quality and security requirements, in preparation for its inclusion in the default HACS repository. For most setups updating needs no changes: connections are converted automatically, `query` calls keep working for every user, and so do `execute` calls from automations and administrators. The Breaking section lists what behaves differently, and the Migration section says what to do when one of those applies to you. Version 3.3.0 was never released and is part of this one.
 
 ### Breaking
 

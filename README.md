@@ -10,7 +10,7 @@
 
 A Home Assistant custom component that talks to a MySQL or MariaDB database through two actions: ```mysql_query.query``` reads with a SELECT and hands you the rows, and ```mysql_query.execute``` writes with an INSERT, UPDATE, DELETE or DDL statement and hands you what it changed. Both can return an iterable data structure you can use straight from a template.
 
-> ⚠️ **Upgrading from an earlier version?** v4.0.0 changes who may call ```execute```, drops YAML configuration, moves some settings and needs Home Assistant 2026.3.0 — see [Upgrading to 4.0.0](#upgrading-to-400) before you update. v3.0.0 changed what ```query``` and ```execute``` each accept — see [Upgrading to 3.0.0](#upgrading-to-300).
+> **Upgrading to v4.0.0?** For most setups nothing needs to change: connections are converted automatically, and ```query``` calls keep working for every user. Check [Upgrading to 4.0.0](#upgrading-to-400) if a user who is not an administrator calls ```execute```, if you still have a ```mysql_query:``` section in ```configuration.yaml```, if a dashboard button puts a template in ```values```, or if you run Home Assistant older than 2026.3.0. Coming from 2.x? v3.0.0 changed what ```query``` and ```execute``` each accept — see [Upgrading to 3.0.0](#upgrading-to-300).
 
 ## Key Features
 
@@ -591,18 +591,27 @@ The services stay listed in Home Assistant while no connection is loaded, so a c
 
 ## Upgrading to 4.0.0
 
-**These changes were made in preparation for including the integration in the default HACS repository, to fully meet the latest Home Assistant and HACS quality and security requirements.** Most of it is invisible, but six things behave differently:
+These changes were made in preparation for including the integration in the default HACS repository, to meet the latest Home Assistant and HACS quality and security requirements. **For most setups updating needs no changes.** Your connections are converted automatically the first time 4.0.0 starts, and these keep working as before:
 
-1. **Home Assistant 2026.3.0 or newer is required.** Home Assistant moved to Python 3.14 with that release, and this version uses it. On an older Home Assistant HACS will not install 4.0.0; stay on 3.2.0 there.
-2. **YAML configuration is no longer supported.** A ```mysql_query:``` section in ```configuration.yaml``` is not imported any more; Home Assistant reports it as unsupported and nothing else happens. Add the connection in the UI and remove the section. Connections that were imported earlier are normal connections already and keep working.
-3. **```execute``` is for administrators.** A call made on behalf of a user who is not an administrator is refused. Automations are not affected. If a dashboard lets such a user cause a write, move the write into an automation and let the dashboard trigger it; see [Who may call what](#who-may-call-what). ```query``` is not restricted.
-4. **Some settings moved.** Changing where a connection connects (host, port, credentials, database, charset, collation, TLS) is now **Reconfigure**, in the menu of the connection. The query timeout, the row limit, autocommit and the read-only switch stay under **Configure**. Your connections are converted automatically the first time 4.0.0 starts.
-5. **You cannot go back to 3.x without re-creating the connections.** The conversion in (4) is one way, and 3.x would not find its settings where it looks for them. Home Assistant refuses to load a converted connection in 3.x instead of running it with the wrong settings; remove it and add it again to downgrade. Make a backup before you update if you may want to go back.
-6. **Templates in ```values``` are rendered once, by Home Assistant.** Automations, scripts and the developer tools are not affected: Home Assistant renders their templates before the call, with the same data types as before. The integration no longer renders them a second time, which let text that came out of a template, such as a sensor state that reads ```{{ ... }}```, run as a template of its own. A dashboard button or an API call that puts a template in ```values``` directly now has it stored as text; let the button run a script that makes the call. See [Templates keep their data type](#templates-keep-their-data-type).
+- ```query``` calls from automations, scripts, dashboards and the developer tools, by every user. The one exception is a dashboard that puts a template in ```values```, see (4) below.
+- ```execute``` calls from automations, and from administrators.
+- Templates in ```values``` in automations, scripts and the developer tools.
 
-One thing to check: ```query``` is stricter about what counts as reading. A ```WITH ... UPDATE``` or ```WITH ... DELETE``` (MySQL 8) and a ```SELECT ... INTO OUTFILE``` used to pass as reading and ran through ```query```; they are refused there now and belong to ```execute```. Every statement through ```query``` also runs in a read-only transaction now.
+**Check whether one of these applies to you:**
 
-Smaller things: ```execute``` no longer needs a ```response_variable```; the actions stay listed while no connection is loaded and then say why a call cannot run; a connection whose database is not up yet when Home Assistant starts is retried by itself; refused credentials start a sign-in form instead of leaving the connection failed; and the password field is masked and never shown again.
+1. **You run Home Assistant older than 2026.3.0.** HACS will not install 4.0.0 there; stay on 3.2.0. Home Assistant moved to Python 3.14 with that release, and this version uses it.
+2. **A user who is not an administrator calls ```execute```**, from a dashboard button, the developer tools or the API. That call is refused now. Move the write into an automation and let the dashboard trigger it; see [Who may call what](#who-may-call-what). ```query``` is not restricted.
+3. **You still have a ```mysql_query:``` section in ```configuration.yaml```.** Connections are set up in the UI only now. A connection that was imported from that section earlier is a normal connection already and keeps working; Home Assistant reports the section as unsupported, so remove it. A connection that exists only in YAML is not imported any more: add it in the UI.
+4. **A dashboard button or an API call puts a template in ```values``` directly.** That template is stored as text now instead of being rendered. Up to 3.x the integration rendered the values a second time, which let text that came out of a template, such as a sensor state that reads ```{{ ... }}```, run as a template of its own. Let the button run a script that makes the call: Home Assistant renders the template there, with the same data types as before. If the call is ```execute``` and the user is not an administrator, see (2). See also [Templates keep their data type](#templates-keep-their-data-type).
+5. **You send a write through ```query```.** A ```WITH ... UPDATE``` or ```WITH ... DELETE``` (MySQL 8) and a ```SELECT ... INTO OUTFILE``` used to pass as reading; they are refused there now and belong to ```execute```.
+
+**Good to know:**
+
+- **Some settings moved.** Changing where a connection connects (host, port, credentials, database, charset, collation, TLS) is now **Reconfigure**, in the menu of the connection. The query timeout, the row limit, autocommit and the read-only switch stay under **Configure**.
+- **Going back to 3.x means re-creating the connections.** The conversion is one way, and 3.x would not find its settings where it looks for them. Home Assistant refuses to load a converted connection in 3.x instead of running it with the wrong settings; remove it and add it again to downgrade. Make a backup before you update if you may want to go back.
+- **Every statement through ```query``` runs in a read-only transaction** now, see [How reading is held to reading](#how-reading-is-held-to-reading).
+
+Smaller things: ```execute``` no longer needs a ```response_variable``` (a write without one stops the automation when it fails); the actions stay listed while no connection is loaded and then say why a call cannot run; a connection whose database is not up yet when Home Assistant starts is retried by itself; refused credentials start a sign-in form instead of leaving the connection failed; and the password field is masked and never shown again.
 
 ---
 
