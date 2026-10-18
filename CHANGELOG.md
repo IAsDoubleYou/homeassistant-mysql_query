@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.1] - 2026-10-18
+
+A clean-up release. Nothing changes for automations, scripts or dashboards; two messages are clearer.
+
+### Changed
+
+- **The setup forms and the connection itself read a failed connection the same way.** Both now use one shared classification. A refusal that waiting does not fix, such as a host the account may not connect from, a locked account, an expired password or an unknown collation, used to show "Failed to connect to the server. Check the host, the port and your firewall" on the form, while setup reported it as a refusal. The form now says the server refused the connection, with the reason from the server, just like setup.
+- **A `config_entry` id of another integration is no longer shown by that integration's title.** A call that named the id of, say, a light, said that connection was not loaded and named the light. It names the id now.
+- **A stored row limit below 1 is replaced with the default once, when the connection is loaded** (config entry minor version 2). The forms never store one, but an import from YAML could; until now it was replaced on every call. The result is the same: such a connection kept returning up to 1000 rows. Going back to 4.0.0 still works.
+- Internal: the response of a successful call is built by the same helper as that of a failed one, an unload no longer checks for runtime data that a loaded entry always has, and a redundant empty-string check is gone.
+
 ## [4.0.0] - 2026-10-18
 
 **Major release.** This release brings the integration in line with the latest Home Assistant and HACS quality and security requirements, in preparation for its inclusion in the default HACS repository. For most setups updating needs no changes: connections are converted automatically, `query` calls keep working for every user, and so do `execute` calls from automations and administrators. The Breaking section lists what behaves differently, and the Migration section says what to do when one of those applies to you. Version 3.3.0 was never released and is part of this one.

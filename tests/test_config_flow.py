@@ -29,6 +29,7 @@ from custom_components.mysql_query.const import (
     CONF_USE_TLS,
     DEFAULT_ROW_LIMIT,
     DOMAIN,
+    ENTRY_MINOR_VERSION,
     ENTRY_VERSION,
     OPTION_KEYS,
 )
@@ -101,6 +102,7 @@ async def test_user_flow_success(hass: HomeAssistant) -> None:
     assert result["options"][CONF_ROW_LIMIT] == DEFAULT_ROW_LIMIT
     # The connection stays in the data, the query behaviour goes to the options.
     assert result["version"] == ENTRY_VERSION
+    assert result["minor_version"] == ENTRY_MINOR_VERSION
     assert set(result["options"]) == set(OPTION_KEYS)
     assert not set(result["data"]) & set(OPTION_KEYS)
     assert result["data"][CONF_MYSQL_HOST] == "localhost"
@@ -131,6 +133,27 @@ async def test_user_flow_cannot_connect(hass: HomeAssistant) -> None:
     assert (
         "Can't connect to MySQL server" in result["description_placeholders"]["error"]
     )
+
+
+async def test_user_flow_connection_refused(hass: HomeAssistant) -> None:
+    """A refusal that waiting does not fix gets the same advice as at setup.
+
+    A host the account may not connect from is not a network problem, so the
+    form does not point at the host, the port and the firewall.
+    """
+    with patch_driver(
+        side_effect=MySQLError(1130, "Host 'ha' is not allowed to connect")
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], USER_INPUT
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "connection_refused"}
+    assert "not allowed to connect" in result["description_placeholders"]["error"]
 
 
 @pytest.mark.parametrize(

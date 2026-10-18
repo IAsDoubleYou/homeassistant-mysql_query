@@ -1,4 +1,4 @@
-"""Tests for the migration of config entries from version 1 to 2."""
+"""Tests for the migration of config entries to version 2, minor version 2."""
 
 from __future__ import annotations
 
@@ -20,7 +20,9 @@ from custom_components.mysql_query.const import (
     CONF_READONLY_CONNECTION,
     CONF_ROW_LIMIT,
     CONF_USE_TLS,
+    DEFAULT_ROW_LIMIT,
     DOMAIN,
+    ENTRY_MINOR_VERSION,
     ENTRY_VERSION,
     SERVICE_EXECUTE,
 )
@@ -126,6 +128,7 @@ async def test_a_current_entry_is_left_alone(hass: HomeAssistant) -> None:
     entry = MockConfigEntry(
         domain=DOMAIN,
         version=ENTRY_VERSION,
+        minor_version=ENTRY_MINOR_VERSION,
         data=dict(CONNECTION),
         options=dict(BEHAVIOUR),
     )
@@ -134,6 +137,64 @@ async def test_a_current_entry_is_left_alone(hass: HomeAssistant) -> None:
 
     assert entry.data == CONNECTION
     assert entry.options == BEHAVIOUR
+
+
+@pytest.mark.parametrize("stored", [0, -5])
+async def test_minor_version_2_replaces_a_row_limit_below_1(
+    hass: HomeAssistant, stored: int
+) -> None:
+    """An import from YAML could store one; it used to be fixed on every call.
+
+    Now it is fixed once, in the entry, and the other settings stay as they
+    were.
+    """
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=ENTRY_VERSION,
+        minor_version=1,
+        data=dict(CONNECTION),
+        options={**BEHAVIOUR, CONF_ROW_LIMIT: stored},
+    )
+
+    await _migrate(hass, entry)
+
+    assert entry.minor_version == ENTRY_MINOR_VERSION
+    assert entry.options == {**BEHAVIOUR, CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT}
+    assert entry.state is ConfigEntryState.LOADED
+
+
+async def test_minor_version_2_keeps_a_valid_row_limit(hass: HomeAssistant) -> None:
+    """Only a value below 1 changes; an absent one stays absent."""
+    valid = MockConfigEntry(
+        domain=DOMAIN,
+        version=ENTRY_VERSION,
+        minor_version=1,
+        data=dict(CONNECTION),
+        options=dict(BEHAVIOUR),
+    )
+    absent = MockConfigEntry(
+        domain=DOMAIN, version=ENTRY_VERSION, minor_version=1, data=dict(CONNECTION)
+    )
+
+    await _migrate(hass, valid)
+    await _migrate(hass, absent)
+
+    assert valid.options == BEHAVIOUR
+    assert absent.options == {}
+    assert valid.minor_version == absent.minor_version == ENTRY_MINOR_VERSION
+
+
+async def test_a_version_1_entry_gets_both_steps(hass: HomeAssistant) -> None:
+    """The settings move to the options, and a row limit below 1 is replaced."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, version=1, data={**CONNECTION, CONF_ROW_LIMIT: 0}
+    )
+
+    await _migrate(hass, entry)
+
+    assert (entry.version, entry.minor_version) == (ENTRY_VERSION, ENTRY_MINOR_VERSION)
+    assert entry.data == CONNECTION
+    assert entry.options == {CONF_ROW_LIMIT: DEFAULT_ROW_LIMIT}
 
 
 async def test_an_entry_from_a_newer_release_is_refused(hass: HomeAssistant) -> None:

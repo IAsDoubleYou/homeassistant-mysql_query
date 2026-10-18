@@ -36,6 +36,10 @@ CONF_READONLY_CONNECTION: Final = "mysql_readonly"
 # settings that only decide how queries behave from the entry data to its options.
 ENTRY_VERSION: Final = 2
 
+# Minor versions only correct stored values, so every release of the same
+# version can still read them. Minor version 2 replaced a row limit below 1.
+ENTRY_MINOR_VERSION: Final = 2
+
 # The settings that only decide how queries behave. They live in the options of
 # a config entry; everything else about a connection lives in its data.
 OPTION_KEYS: Final = (

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 import logging
 import re
-from typing import Any
+from typing import Any, Literal
 
 import aiomysql
 
@@ -91,6 +91,38 @@ ERRNO_UNKNOWN_DATABASE = 1049
 # is full or shutting down (1040, 1203 for this user, 1053). Waiting fixes
 # these; any other refusal by the server needs someone to change something.
 TRANSIENT_ERRNOS = frozenset({1040, 1053, 1203, 2002, 2003, 2005, 2006, 2013})
+
+type ConnectFailure = Literal[
+    "invalid_auth", "unknown_database", "cannot_connect", "connection_refused"
+]
+
+
+def classify_connect_error(err: BaseException) -> ConnectFailure:
+    """Return what a failed attempt to connect means for whoever has to fix it.
+
+    Setup and the forms both decide by this, so the same answer from the
+    server always gets the same advice:
+
+    - invalid_auth: the username or password was refused; new ones fix it.
+    - unknown_database: the database does not exist or this user may not use
+      it; a new password does not fix that.
+    - cannot_connect: the server cannot be used right now; waiting fixes it.
+    - connection_refused: any other refusal by the server, such as a host the
+      account may not connect from, a locked account or an expired password;
+      waiting does not fix it.
+    """
+    # An OSError carries an operating system errno, not a MySQL one, and
+    # always means the server could not be reached.
+    if isinstance(err, OSError):
+        return "cannot_connect"
+    errno, _ = error_details(err)
+    if errno == ERRNO_ACCESS_DENIED:
+        return "invalid_auth"
+    if errno in (ERRNO_DATABASE_ACCESS_DENIED, ERRNO_UNKNOWN_DATABASE):
+        return "unknown_database"
+    if errno in TRANSIENT_ERRNOS:
+        return "cannot_connect"
+    return "connection_refused"
 
 
 def build_connection_kwargs(config: Mapping[str, Any]) -> dict[str, Any]:

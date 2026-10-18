@@ -11,7 +11,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.mysql_query.const import DOMAIN, ENTRY_VERSION, OPTION_KEYS
+from custom_components.mysql_query.const import (
+    DOMAIN,
+    ENTRY_MINOR_VERSION,
+    ENTRY_VERSION,
+    OPTION_KEYS,
+)
 
 # On Linux/macOS (e.g. CI) this file isn't needed: the stdlib "fcntl" module
 # that homeassistant.runner imports exists natively there. On Windows it
@@ -257,5 +262,10 @@ def make_entry(data: dict[str, Any] | None = None, **kwargs: Any) -> MockConfigE
     settings = dict(data or {})
     options = {key: settings.pop(key) for key in OPTION_KEYS if key in settings}
     return MockConfigEntry(
-        domain=DOMAIN, version=ENTRY_VERSION, data=settings, options=options, **kwargs
+        domain=DOMAIN,
+        version=ENTRY_VERSION,
+        minor_version=ENTRY_MINOR_VERSION,
+        data=settings,
+        options=options,
+        **kwargs,
     )

@@ -27,6 +27,7 @@ from custom_components.mysql_query.db import (
     async_test_connection,
     async_verify_tls,
     build_connection_kwargs,
+    classify_connect_error,
     error_details,
     tls_requested,
 )
@@ -104,6 +105,31 @@ def test_error_details_handles_client_side_errors() -> None:
         None,
         "Connection refused",
     )
+
+
+@pytest.mark.parametrize(
+    ("error", "failure"),
+    [
+        (MySQLError(1045, "Access denied"), "invalid_auth"),
+        (MySQLError(1044, "Access denied to database"), "unknown_database"),
+        (MySQLError(1049, "Unknown database"), "unknown_database"),
+        (MySQLError(2003, "Can't connect"), "cannot_connect"),
+        (MySQLError(2013, "Lost connection"), "cannot_connect"),
+        (MySQLError(1040, "Too many connections"), "cannot_connect"),
+        (ConnectionRefusedError(111, "Connection refused"), "cannot_connect"),
+        (TimeoutError(), "cannot_connect"),
+        (MySQLError(1130, "Host is not allowed to connect"), "connection_refused"),
+        (MySQLError(3118, "Account is locked"), "connection_refused"),
+        (MySQLError(1273, "Unknown collation"), "connection_refused"),
+    ],
+)
+def test_classify_connect_error(error: BaseException, failure: str) -> None:
+    """Setup and the forms read a failed connection the same way.
+
+    An OSError counts as unreachable whatever its errno: that is an operating
+    system number, not a MySQL one.
+    """
+    assert classify_connect_error(error) == failure
 
 
 class _StatusCursor:

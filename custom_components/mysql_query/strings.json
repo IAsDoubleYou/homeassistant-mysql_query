@@ -57,6 +57,7 @@
             "cannot_connect": "Failed to connect to the server. Check the host, the port and your firewall. Details: {error}",
             "invalid_auth": "The server refused the username or password.",
             "unknown_database": "The database does not exist, or this user has no access to it.",
+            "connection_refused": "The server refused the connection, and waiting does not fix this. The reason says what to change, for instance the host the account may connect from, a locked account, an expired password, or a setting such as the collation. Details: {error}",
             "unknown": "Unexpected error while connecting: {error}",
             "tls_unavailable": "The server accepted the connection but did not encrypt it. Configure TLS on the database, or turn the encryption option off."
         },
@@ -106,7 +107,7 @@
             "message": "The database of \"{connection}\" does not exist, or its user has no access to it. A new password does not fix this: check the database name and the privileges of the user."
         },
         "connection_refused": {
-            "message": "The database server refused the connection of \"{connection}\": {error}. Waiting does not fix this: check the account on the server, such as the host it may connect from, whether it is locked, and whether its password has expired."
+            "message": "The database server refused the connection of \"{connection}\": {error}. Waiting does not fix this. The reason says what to change, for instance the host the account may connect from, a locked account, an expired password, or a setting such as the collation."
         },
         "cannot_connect": {
             "message": "Could not connect to \"{connection}\": {error}. Home Assistant tries again by itself."

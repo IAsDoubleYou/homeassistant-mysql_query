@@ -584,3 +584,24 @@ async def test_call_on_an_unloaded_connection_is_refused(hass: HomeAssistant) ->
             blocking=True,
             return_response=True,
         )
+
+
+async def test_an_id_of_another_integration_is_not_shown_by_its_title(
+    hass: HomeAssistant,
+) -> None:
+    """The message names the id, not a connection of some other integration."""
+    await _setup_entry(hass, FakePool(FakeConnection(_cursor())))
+    other = MockConfigEntry(domain="light", title="Kitchen lights")
+    other.add_to_hass(hass)
+
+    with pytest.raises(ServiceValidationError) as raised:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_QUERY,
+            {ATTR_QUERY: "SELECT 1", ATTR_CONFIG_ENTRY: other.entry_id},
+            blocking=True,
+            return_response=True,
+        )
+
+    assert raised.value.translation_placeholders == {"connection": other.entry_id}
+    assert "Kitchen lights" not in str(raised.value)

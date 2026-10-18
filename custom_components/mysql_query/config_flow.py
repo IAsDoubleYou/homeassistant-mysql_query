@@ -43,15 +43,14 @@ from .const import (
     DEFAULT_ROW_LIMIT,
     DEFAULT_USE_TLS,
     DOMAIN,
+    ENTRY_MINOR_VERSION,
     ENTRY_VERSION,
     OPTION_KEYS,
 )
 from .db import (
-    ERRNO_ACCESS_DENIED,
-    ERRNO_DATABASE_ACCESS_DENIED,
-    ERRNO_UNKNOWN_DATABASE,
     TLSUnavailableError,
     async_test_connection,
+    classify_connect_error,
     error_details,
     merged_config,
 )
@@ -91,17 +90,18 @@ async def _async_validate(config: dict[str, Any]) -> tuple[str | None, str]:
         # The settings themselves are fine; the server just did not encrypt.
         _LOGGER.debug("TLS requested but not established: %s", err)
         return "tls_unavailable", ""
-    except (Error, OSError, TimeoutError) as err:
-        errno, _ = error_details(err)
-        if errno == ERRNO_ACCESS_DENIED:
-            return "invalid_auth", ""
-        if errno in (ERRNO_DATABASE_ACCESS_DENIED, ERRNO_UNKNOWN_DATABASE):
-            return "unknown_database", ""
-        # A refused connection, a timeout and a rejected charset all end up
-        # here and each needs a different fix, so the reason from the driver
-        # is shown alongside the generic advice.
+    except (Error, OSError) as err:
+        # The same classification setup uses, so the form and the connection
+        # never give different advice for the same answer from the server.
+        failure = classify_connect_error(err)
+        if failure in ("invalid_auth", "unknown_database"):
+            return failure, ""
+        # A refused connection, a timeout, a host the account may not connect
+        # from and a rejected collation all end up here and each needs a
+        # different fix, so the reason from the driver is shown alongside the
+        # generic advice.
         _LOGGER.debug("MySQL connection error: %s", err)
-        return "cannot_connect", _error_detail(err)
+        return failure, _error_detail(err)
     except Exception as err:
         _LOGGER.exception("Unexpected exception")
         return "unknown", _error_detail(err)
@@ -271,6 +271,7 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # without the read-only switch. Home Assistant refuses to load an entry
     # that is newer than the integration instead.
     VERSION = ENTRY_VERSION
+    MINOR_VERSION = ENTRY_MINOR_VERSION
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None

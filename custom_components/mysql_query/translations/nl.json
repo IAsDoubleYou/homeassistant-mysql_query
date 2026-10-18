@@ -57,6 +57,7 @@
             "cannot_connect": "Verbinden met de server is mislukt. Controleer de host, de poort en je firewall. Details: {error}",
             "invalid_auth": "De server weigerde de gebruikersnaam of het wachtwoord.",
             "unknown_database": "De database bestaat niet, of deze gebruiker heeft er geen toegang toe.",
+            "connection_refused": "De server weigerde de verbinding, en wachten lost dit niet op. De reden zegt wat er moet veranderen, bijvoorbeeld vanaf welke host het account mag verbinden, een geblokkeerd account, een verlopen wachtwoord of een instelling zoals de collation. Details: {error}",
             "unknown": "Onverwachte fout bij het verbinden: {error}",
             "tls_unavailable": "De server accepteerde de verbinding maar versleutelde die niet. Configureer TLS op de database, of zet de versleutelingsoptie uit."
         },
@@ -106,7 +107,7 @@
             "message": "De database van \"{connection}\" bestaat niet, of de gebruiker heeft er geen toegang toe. Een nieuw wachtwoord lost dit niet op: controleer de databasenaam en de rechten van de gebruiker."
         },
         "connection_refused": {
-            "message": "De databaseserver weigerde de verbinding van \"{connection}\": {error}. Wachten lost dit niet op: controleer het account op de server, zoals vanaf welke host het mag verbinden, of het geblokkeerd is en of het wachtwoord verlopen is."
+            "message": "De databaseserver weigerde de verbinding van \"{connection}\": {error}. Wachten lost dit niet op. De reden zegt wat er moet veranderen, bijvoorbeeld vanaf welke host het account mag verbinden, een geblokkeerd account, een verlopen wachtwoord of een instelling zoals de collation."
         },
         "cannot_connect": {
             "message": "Verbinden met \"{connection}\" is mislukt: {error}. Home Assistant probeert het zelf opnieuw."

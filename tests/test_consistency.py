@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import re
+from typing import get_args
 
 import voluptuous as vol
 import yaml
@@ -32,6 +33,7 @@ from custom_components.mysql_query.const import (
     SERVICE_EXECUTE,
     SERVICE_QUERY,
 )
+from custom_components.mysql_query.db import ConnectFailure
 
 PACKAGE = Path(__file__).resolve().parent.parent / "custom_components" / "mysql_query"
 STRINGS = json.loads((PACKAGE / "strings.json").read_text())
@@ -41,6 +43,10 @@ SERVICES = yaml.safe_load((PACKAGE / "services.yaml").read_text())
 SOURCE = {path.name: path.read_text() for path in PACKAGE.glob("*.py")}
 
 SCHEMAS = {SERVICE_QUERY: QUERY_SCHEMA, SERVICE_EXECUTE: EXECUTE_SCHEMA}
+
+# The kinds of connection failure. Setup and the forms pass one on as the key
+# of its message instead of writing the key out, so the source cannot list them.
+CONNECT_FAILURES = set(get_args(ConnectFailure.__value__))
 
 
 def _paths(node: object, prefix: tuple[str, ...] = ()) -> set[tuple[str, ...]]:
@@ -62,7 +68,7 @@ def test_dutch_translation_has_exactly_the_keys_of_the_english_one() -> None:
 
 def test_every_exception_key_in_the_code_exists_and_every_key_is_used() -> None:
     """Each translation_key is defined, and none is defined for nothing."""
-    used = set()
+    used = set(CONNECT_FAILURES)
     for text in SOURCE.values():
         used |= set(re.findall(r'translation_key="([a-z_]+)"', text))
 
@@ -72,6 +78,7 @@ def test_every_exception_key_in_the_code_exists_and_every_key_is_used() -> None:
 def test_every_form_error_key_is_defined_and_used() -> None:
     """The errors a form can show are the ones the strings define."""
     used = set(re.findall(r'return "([a-z_]+)", ', SOURCE["config_flow.py"]))
+    used |= CONNECT_FAILURES
 
     assert used == set(STRINGS["config"]["error"])
 

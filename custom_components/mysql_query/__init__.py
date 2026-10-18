@@ -51,6 +51,7 @@ from .const import (
     DEFAULT_READONLY_CONNECTION,
     DEFAULT_ROW_LIMIT,
     DOMAIN,
+    ENTRY_MINOR_VERSION,
     ENTRY_VERSION,
     OPTION_KEYS,
     SERVICE_EXECUTE,
@@ -58,13 +59,11 @@ from .const import (
 )
 from .db import (
     ERRNO_ACCESS_DENIED,
-    ERRNO_DATABASE_ACCESS_DENIED,
-    ERRNO_UNKNOWN_DATABASE,
-    TRANSIENT_ERRNOS,
     TLSUnavailableError,
     async_create_pool,
     async_test_connection,
     async_verify_tls,
+    classify_connect_error,
     error_details,
     merged_config,
     tls_requested,
@@ -237,11 +236,14 @@ def _async_get_instance(hass: HomeAssistant, entry_id: str | None) -> MySQLInsta
         for entry in entries:
             if entry.entry_id == entry_id:
                 return entry.runtime_data
+        # The title only of a connection of this integration: an id that
+        # belongs to another integration must not show the name of that one.
         known = hass.config_entries.async_get_entry(entry_id)
+        title = known.title if known and known.domain == DOMAIN else entry_id
         raise ServiceValidationError(
             translation_domain=DOMAIN,
             translation_key="connection_not_loaded",
-            translation_placeholders={"connection": known.title if known else entry_id},
+            translation_placeholders={"connection": title},
         )
 
     for entry in entries:
@@ -529,36 +531,27 @@ def _setup_error(entry: ConfigEntry, err: BaseException) -> IntegrationError:
     connect from, a locked account or an expired password: retrying those
     would only go on forever.
 
-    Home Assistant logs the exception it is given, so nothing is logged here.
+    The forms decide by the same classify_connect_error, so a failure gets the
+    same advice in both places. Home Assistant logs the exception it is given,
+    so nothing is logged here.
     """
-    errno, message = error_details(err)
-    placeholders = {"connection": entry.title, "error": message or type(err).__name__}
+    _, message = error_details(err)
+    failure = classify_connect_error(err)
+    # The kinds of failure double as the translation keys of their messages.
+    kwargs: dict[str, Any] = {
+        "translation_domain": DOMAIN,
+        "translation_key": failure,
+        "translation_placeholders": {
+            "connection": entry.title,
+            "error": message or type(err).__name__,
+        },
+    }
 
-    if errno == ERRNO_ACCESS_DENIED:
-        return ConfigEntryAuthFailed(
-            translation_domain=DOMAIN,
-            translation_key="invalid_auth",
-            translation_placeholders=placeholders,
-        )
-    if errno in (ERRNO_DATABASE_ACCESS_DENIED, ERRNO_UNKNOWN_DATABASE):
-        return ConfigEntryError(
-            translation_domain=DOMAIN,
-            translation_key="unknown_database",
-            translation_placeholders=placeholders,
-        )
-    # An OSError carries an operating system errno, not a MySQL one, and
-    # always means the server could not be reached.
-    if isinstance(err, OSError) or errno in TRANSIENT_ERRNOS:
-        return ConfigEntryNotReady(
-            translation_domain=DOMAIN,
-            translation_key="cannot_connect",
-            translation_placeholders=placeholders,
-        )
-    return ConfigEntryError(
-        translation_domain=DOMAIN,
-        translation_key="connection_refused",
-        translation_placeholders=placeholders,
-    )
+    if failure == "invalid_auth":
+        return ConfigEntryAuthFailed(**kwargs)
+    if failure == "cannot_connect":
+        return ConfigEntryNotReady(**kwargs)
+    return ConfigEntryError(**kwargs)
 
 
 async def _async_close_pool(pool: aiomysql.Pool) -> None:
@@ -674,9 +667,9 @@ async def _async_credentials_refused(instance: MySQLInstance) -> bool:
     """
     try:
         await async_test_connection(instance.config)
-    except aiomysql.Error as err:
-        return error_details(err)[0] == ERRNO_ACCESS_DENIED
-    except OSError, TimeoutError, TLSUnavailableError:
+    except (aiomysql.Error, OSError) as err:
+        return classify_connect_error(err) == "invalid_auth"
+    except TLSUnavailableError:
         return False
     return False
 
@@ -712,11 +705,11 @@ async def _async_handle_service(
 
     inst_config = instance.config
     mysql_db = inst_config.get(CONF_MYSQL_DB)
-    target_db_name = _db4query if (_db4query and _db4query != "") else mysql_db
+    target_db_name = _db4query or mysql_db
 
+    # Always 1 or more: the forms refuse less, and the migration to minor
+    # version 2 replaced a lower value that an import from YAML had stored.
     row_limit = int(inst_config.get(CONF_ROW_LIMIT, DEFAULT_ROW_LIMIT))
-    if row_limit < 1:
-        row_limit = DEFAULT_ROW_LIMIT
 
     response = {
         "succeeded": False,
@@ -782,12 +775,6 @@ async def _async_handle_service(
             }
         )
 
-        # Kept inside the try, next to the response they read, rather than
-        # moved into an else block that would sit below the handlers.
-        if call.service == SERVICE_QUERY:
-            return _query_response(response)
-        return response  # noqa: TRY300
-
     except aiomysql.Error as err:
         errno, message = error_details(err)
         if errno == ERRNO_ACCESS_DENIED and await _async_credentials_refused(instance):
@@ -828,6 +815,9 @@ async def _async_handle_service(
             ) from err
         return report("unexpected error", str(err))
 
+    # Every handler above has returned or raised, so only a success gets here.
+    return _service_response(call, response)
+
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Move an entry to the current version.
@@ -836,6 +826,11 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     decide how queries behave moved to the options in version 2. An entry
     without some of them keeps going without: the defaults fill the gap when
     the settings are read.
+
+    Minor version 2 replaces a row limit below 1 with the default. The forms
+    never store one, but an import from YAML could, and until now the value
+    was corrected every time a call read it. A minor version only fixes a
+    stored value, so a release that knows minor version 1 still reads it.
     """
     if entry.version > ENTRY_VERSION:
         # Written by a newer release; this one cannot read it.
@@ -850,15 +845,25 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             version=ENTRY_VERSION,
         )
 
+    if entry.minor_version < ENTRY_MINOR_VERSION:
+        options = dict(entry.options)
+        row_limit = options.get(CONF_ROW_LIMIT)
+        if isinstance(row_limit, int | float) and row_limit < 1:
+            options[CONF_ROW_LIMIT] = DEFAULT_ROW_LIMIT
+        hass.config_entries.async_update_entry(
+            entry, options=options, minor_version=ENTRY_MINOR_VERSION
+        )
+
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: MySQLQueryConfigEntry) -> bool:
-    """Unload a config entry."""
-    # An entry whose setup failed never got its runtime data.
-    instance = getattr(entry, "runtime_data", None)
-    if instance is None:
-        return True
+    """Unload a config entry.
+
+    Home Assistant only calls this for an entry that is loaded, so its runtime
+    data is always there; an entry whose setup failed is never unloaded here.
+    """
+    instance = entry.runtime_data
 
     # Taking the lock first lets a service call that is still running finish
     # before its connection is pulled out from under it.
