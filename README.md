@@ -15,7 +15,7 @@ A Home Assistant custom component that talks to a MySQL or MariaDB database thro
 
 ## Key Features
 
-- **UI configuration**: add a connection, change it with **Reconfigure** and **Configure**, and sign in again from a prompt when the database refuses the credentials.
+- **UI configuration**: add a connection, change it later from the menu of the connection, and sign in again from a prompt when the database refuses the credentials.
 - **Reading and writing are separate**: ```query``` runs only statements that read, ```execute``` only statements that change something. The wrong one gives an error naming the right one.
 - **Parameterized queries**: pass values separately with ```values``` and ```%s``` placeholders, so the database escapes them for you.
 - **Guard rails**: a row limit, a query timeout, one statement per call, optional read-only connections, writes for administrators only, and optional TLS.
@@ -55,36 +55,25 @@ Extract it straight into ```custom_components/mysql_query``` (the archive has no
 
 Add the integration as often as you like to connect to **multiple servers or databases**. A host/database combination can be added once.
 
-### Changing a connection
+### Settings
 
-- **Reconfigure** (the **⋮** menu of the connection) changes where and how it connects: host, port, credentials, database, connect timeout, charset, collation and TLS. The new settings are tried before they are saved.
-- **Configure** changes how queries behave: query timeout, row limit, autocommit and the read-only switch.
+- **Host** and **Port** of the server (default port ```3306```)
+- **Database**: the default database, unless a call overrides it with ```db4query```
+- **Username** and **Password**: grant that user only the privileges you need. The password is masked and never shown again; leave the field empty to keep it.
+- **Connect timeout**, and optionally **Charset** and **Collation**
+- **Query timeout** (default 30 seconds): bounds a whole call, so a slow query fails instead of hanging your automation
+- **Row limit** (default 1000): the most rows a SELECT hands to Home Assistant
+- **Autocommit**: on by default
+- **Read-only switch**: refuses ```execute``` on this connection, see [Read-only connections](#read-only-connections)
+- **TLS**: see [Encrypting the connection](#encrypting-the-connection)
 
-The password is never shown. Leave the field empty to keep the current one.
+You can change all of them later from the menu (**⋮**) of the connection.
 
 ### When the database refuses or cannot be reached
 
 - **Not reachable** (down, still starting): Home Assistant retries by itself, so the connection comes up once the database does.
 - **Credentials refused**: Home Assistant asks you to sign in again and updates the existing connection.
-- **Unknown database, a refused host, a locked account, TLS asked for but not offered**: the connection stops with the reason from the server. Waiting does not fix these; correct the cause (use **Reconfigure** where it applies) and reload.
-
-### Settings
-
-| Field | Key | Where | Default | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| **Host** | ```mysql_host``` | Reconfigure | – | Hostname or IP address of the server. |
-| **Port** | ```mysql_port``` | Reconfigure | ```3306``` | Port the server listens on. |
-| **Username** | ```mysql_username``` | Reconfigure | – | Database user for every query on this connection. Grant only the privileges you need. |
-| **Password** | ```mysql_password``` | Reconfigure | – | Password of that user. Masked, never shown again, never logged. |
-| **Database** | ```mysql_db``` | Reconfigure | – | Default database, unless a call overrides it with ```db4query```. |
-| **Connect Timeout (seconds)** | ```mysql_timeout``` | Reconfigure | ```10``` | How long to wait when opening a connection. |
-| **Charset** | ```mysql_charset``` | Reconfigure | driver default | Optional, for example ```utf8mb4```. |
-| **Collation** | ```mysql_collation``` | Reconfigure | server default | Optional, for example ```utf8mb4_unicode_ci```. |
-| **Encrypt the connection (TLS)** | ```mysql_use_tls``` | Reconfigure | off | See [Encrypting the connection](#encrypting-the-connection). |
-| **Query Timeout (seconds)** | ```mysql_query_timeout``` | Configure | ```30``` | Bounds a whole call, including waiting for a free connection. A call that runs longer fails instead of hanging your automation. |
-| **Row Limit (Safety Cap)** | ```mysql_row_limit``` | Configure | ```1000``` | Most rows a single SELECT hands to Home Assistant. |
-| **Autocommit** | ```mysql_autocommit``` | Configure | on | Commit every statement immediately. With it off, writes are still committed after they succeed. |
-| **Read-only connection** | ```mysql_readonly``` | Configure | off | Refuses ```execute``` on this connection. See [Read-only connections](#read-only-connections). |
+- **Unknown database, a refused host, a locked account, TLS asked for but not offered**: the connection stops with the reason from the server. Waiting does not fix these; correct the cause and reload.
 
 ### Row limit, timeout and concurrency
 
@@ -94,7 +83,7 @@ The password is never shown. Leave the field empty to keep the current one.
 
 ### Read-only connections
 
-Switch on **Read-only** (setup form or **Configure**) and every ```execute``` on that connection is refused, whatever the statement says. Use it for a connection that feeds dashboards or reports, so a write meant for another database cannot land there by mistake. ```query``` keeps working. For a connection that must never write, also give its database user ```SELECT``` rights only, see [Security best practice](#security-best-practice).
+Switch on **Read-only** and every ```execute``` on that connection is refused, whatever the statement says. Use it for a connection that feeds dashboards or reports, so a write meant for another database cannot land there by mistake. ```query``` keeps working. For a connection that must never write, also give its database user ```SELECT``` rights only, see [Security best practice](#security-best-practice).
 
 ### Encrypting the connection
 
@@ -154,7 +143,7 @@ To let a non-administrator cause a write, put the write in an automation and let
 
 ### Parameterized queries with ```values```
 
-Write a ```%s``` placeholder for each value and list the values in order. They travel to MySQL separately and the driver escapes each one, so a quote or semicolon in your data cannot change the statement. Leave ```values``` out and the statement is sent as written.
+Put a ```%s``` placeholder in the query for each value and pass the values in order with ```values```. The driver escapes them, so a quote or semicolon in your data cannot change the statement.
 
 ```yaml
 actions:
@@ -170,13 +159,9 @@ actions:
     response_variable: insert_result
 ```
 
-- **Do not quote the placeholders**: ```VALUES ('%s')``` is wrong.
-- **One placeholder, one value**, never a list. Write ```IN (%s, %s, %s)``` with three values. Only values can be parameterized, not table or column names.
-- **Double a literal ```%``` as soon as you pass ```values```**: ```LIKE '%%kitchen%%'```, or better pass the pattern as a value (```values: ["%kitchen%"]```).
-- **Templates keep their data type.** Home Assistant renders the templates in ```values``` before the call, in automations, scripts and the developer tools, so ```"{{ states('sensor.temperature') | float }}"``` arrives as a number and ```"{{ none }}"``` as a real ```NULL```. A plain value is never reinterpreted: ```"0612345678"``` keeps its leading zero. The integration does not render values a second time, so text that reads like a template is stored as text. A dashboard button that calls the action directly renders nothing; let it run a script instead.
-- A template that fails is reported by Home Assistant before the call; the statement is never sent.
+Do not put quotes around a placeholder, use one placeholder per value (```IN (%s, %s)``` for two), and double a literal ```%``` in the statement (```LIKE '%%kitchen%%'```) once you pass ```values```.
 
-⚠️ **Templating and SQL injection**: prefer ```values``` over building the statement with templates. If you do interpolate a template into ```query```, only do so with values you control, and cast to a number (```| float(0)```, ```| int(0)```) where possible.
+⚠️ Prefer ```values``` over building the statement with templates, which invites SQL injection.
 
 ### Service: ```mysql_query.query```
 
@@ -343,23 +328,7 @@ actions:
 
 ### Data types in the result set
 
-Home Assistant serialises service responses to JSON, which has no notion of the
-native Python objects the MySQL driver returns. Values are therefore converted
-before they reach your automation:
-
-| MySQL column type | Returned as | Example |
-| --- | --- | --- |
-| `DECIMAL` / `NUMERIC` | Number | `19.99` |
-| `DATE` / `YEAR` | ISO 8601 string | `"2026-08-08"` |
-| `DATETIME` / `TIMESTAMP` | ISO 8601 string | `"2026-08-08T14:30:05"` |
-| `TIME` | String `[-]HH:MM:SS` | `"01:30:00"` |
-| `SET` | Sorted list of strings | `["a", "b"]` |
-| `JSON` | Object/list, converted recursively | `{"amount": 10.25}` |
-| `BLOB` / `BINARY` | `"BLOB"` | `"BLOB"` |
-| Large objects | `"LARGE OBJECT"` | `"LARGE OBJECT"` |
-
-`NULL` stays `null`, and values that cannot be represented in JSON (`NaN`,
-`Infinity`) are returned as `null`.
+Values are converted so the response is JSON-safe: ```DECIMAL``` becomes a number, dates and times become ISO 8601 strings, ```SET``` a sorted list, ```JSON``` an object, ```BLOB``` the text ```"BLOB"```, and ```NULL``` stays ```null```.
 
 ### Error handling at a glance
 
@@ -386,17 +355,7 @@ Looking for the migration steps of older versions? They are in the [changelog](C
 
 ## HA MySQL or MySQL Query?
 
-Two integrations, two different jobs. They can be installed side by side.
-
-| | **[HA MySQL](https://github.com/IAsDoubleYou/ha_mysql)** | **MySQL Query** (this repository) |
-|---|---|---|
-| Approach | Automatic sensors | Actions (services) for scripts and automations |
-| Runs a query | On its own interval, per sensor | Only when you call the action |
-| Result ends up in | The state and the attributes of a sensor | The response of the action, and optionally in an event |
-| Creates entities | Yes, one sensor per query | No |
-| History and statistics | Yes, through the sensor | No |
-| Writing to the database | No, `SELECT` only | Yes, `INSERT`, `UPDATE` and `DELETE` as well |
-| Best for | Values you want to follow continuously, dashboards, the energy dashboard | Lookups on demand, queries with runtime parameters, changing data |
+[HA MySQL](https://github.com/IAsDoubleYou/ha_mysql) creates sensors that follow a query on an interval, `SELECT` only. MySQL Query (this repository) runs a query only when you call the action, can write as well, and returns the result as response data. They can be installed side by side.
 
 ## Changelog
 

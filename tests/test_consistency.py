@@ -15,24 +15,7 @@ import voluptuous as vol
 import yaml
 
 from custom_components.mysql_query.__init__ import EXECUTE_SCHEMA, QUERY_SCHEMA
-from custom_components.mysql_query.config_flow import (
-    get_connection_schema,
-    get_options_schema,
-)
-from custom_components.mysql_query.const import (
-    CONF_MYSQL_CHARSET,
-    CONF_MYSQL_COLLATION,
-    CONF_MYSQL_DB,
-    CONF_MYSQL_HOST,
-    CONF_MYSQL_PASSWORD,
-    CONF_MYSQL_PORT,
-    CONF_MYSQL_TIMEOUT,
-    CONF_MYSQL_USERNAME,
-    CONF_USE_TLS,
-    OPTION_KEYS,
-    SERVICE_EXECUTE,
-    SERVICE_QUERY,
-)
+from custom_components.mysql_query.const import SERVICE_EXECUTE, SERVICE_QUERY
 from custom_components.mysql_query.db import ConnectFailure
 
 PACKAGE = Path(__file__).resolve().parent.parent / "custom_components" / "mysql_query"
@@ -137,45 +120,3 @@ def test_service_texts_agree_between_services_yaml_and_the_strings() -> None:
             expected = text["fields"][name]
             assert field["name"] == expected["name"], (service, name)
             assert field["description"] == expected["description"], (service, name)
-
-
-def _readme_settings() -> dict[str, str]:
-    """Return the settings table of the README as {key: where it is changed}."""
-    readme = (PACKAGE.parent.parent / "README.md").read_text()
-    rows = re.findall(
-        r"^\| \*\*[^|]+\*\* \| ```(mysql_[a-z_]+)``` \| (Reconfigure|Configure) \|",
-        readme,
-        re.MULTILINE,
-    )
-    return dict(rows)
-
-
-def test_readme_documents_every_setting_where_it_can_be_changed() -> None:
-    """Each setting is in the README table, and under the form that holds it."""
-    settings = _readme_settings()
-
-    assert set(settings) == {
-        CONF_MYSQL_HOST,
-        CONF_MYSQL_PORT,
-        CONF_MYSQL_USERNAME,
-        CONF_MYSQL_PASSWORD,
-        CONF_MYSQL_DB,
-        CONF_MYSQL_TIMEOUT,
-        CONF_MYSQL_CHARSET,
-        CONF_MYSQL_COLLATION,
-        CONF_USE_TLS,
-        *OPTION_KEYS,
-    }
-    assert {key for key, where in settings.items() if where == "Configure"} == set(
-        OPTION_KEYS
-    )
-
-
-def test_the_settings_forms_hold_what_the_readme_says() -> None:
-    """The reconfigure and options forms are the ones the table describes."""
-    settings = _readme_settings()
-    connection = {str(key) for key in get_connection_schema({}).schema}
-    options = {str(key) for key in get_options_schema({}).schema}
-
-    assert connection == {k for k, where in settings.items() if where == "Reconfigure"}
-    assert options == {k for k, where in settings.items() if where == "Configure"}
