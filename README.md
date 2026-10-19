@@ -11,7 +11,7 @@
 
 A Home Assistant custom component that talks to a MySQL or MariaDB database through two actions: ```mysql_query.query``` reads with a SELECT and hands you the rows, and ```mysql_query.execute``` writes with an INSERT, UPDATE, DELETE or DDL statement and hands you what it changed. Both can return an iterable data structure you can use straight from a template.
 
-> **Upgrading to v4.0.0?** For most setups nothing needs to change: connections are converted automatically, and ```query``` calls keep working for every user. Check [Upgrading to 4.0.0](#upgrading-to-400) if a user who is not an administrator calls ```execute```, if you still have a ```mysql_query:``` section in ```configuration.yaml```, if a dashboard button puts a template in ```values```, or if you run Home Assistant older than 2026.3.0. Coming from 2.x? v3.0.0 changed what ```query``` and ```execute``` each accept — see [Upgrading to 3.0.0](#upgrading-to-300).
+> **Upgrading from 3.x?** For most setups nothing needs to change: connections are converted automatically, and ```query``` calls keep working for every user. See [Upgrading from 3.x](#upgrading-from-3x) for the four things that can need attention.
 
 ## Key Features
 
@@ -173,7 +173,7 @@ SHOW GLOBAL VARIABLES LIKE 'have_ssl';
 
 ### YAML is not supported
 
-Connections are config entries only; there is no ```mysql_query:``` section for ```configuration.yaml```. If one is left in your file, Home Assistant reports that this integration does not support YAML configuration and nothing is imported. Add the connection in the UI and remove the section. Up to 3.x such a section was imported automatically; see [Upgrading to 4.0.0](#upgrading-to-400).
+Connections are config entries only; there is no ```mysql_query:``` section for ```configuration.yaml```. If one is left in your file, Home Assistant reports that this integration does not support YAML configuration and nothing is imported. Add the connection in the UI and remove the section. Up to 3.x such a section was imported automatically; see [Upgrading from 3.x](#upgrading-from-3x).
 
 ---
 
@@ -594,64 +594,16 @@ The services stay listed in Home Assistant while no connection is loaded, so a c
 
 ---
 
-## Upgrading to 4.0.0
+## Upgrading from 3.x
 
-These changes were made in preparation for including the integration in the default HACS repository, to meet the latest Home Assistant and HACS quality and security requirements. **For most setups updating needs no changes.** Your connections are converted automatically the first time 4.0.0 starts, and these keep working as before:
+For most setups updating needs no changes: connections are converted automatically the first time 4.x starts, and ```query``` calls keep working for every user. Four things can need attention:
 
-- ```query``` calls from automations, scripts, dashboards and the developer tools, by every user. The one exception is a dashboard that puts a template in ```values```, see (4) below.
-- ```execute``` calls from automations, and from administrators.
-- Templates in ```values``` in automations, scripts and the developer tools.
+- **Home Assistant 2026.3.0 or newer is required.** HACS will not install 4.x on anything older; stay on 3.2.0 there.
+- **```execute``` is for administrators.** A call from a user who is not an administrator, such as a dashboard button, is refused. Let the button trigger an automation that makes the write; see [Who may call what](#who-may-call-what). Automations are not affected.
+- **YAML configuration is gone.** Connections are set up in the UI, and a ```mysql_query:``` section in ```configuration.yaml``` is not imported any more, see [YAML is not supported](#yaml-is-not-supported). Connections that were imported earlier keep working. The conversion is one way, so make a backup before updating if you may want to go back to 3.x.
+- **Home Assistant renders the templates in ```values```.** Automations, scripts and the developer tools are not affected. A dashboard button or an API call that puts a template in ```values``` directly now passes it as text; let the button run a script that makes the call, see [Templates keep their data type](#templates-keep-their-data-type).
 
-**Check whether one of these applies to you:**
-
-1. **You run Home Assistant older than 2026.3.0.** HACS will not install 4.0.0 there; stay on 3.2.0. Home Assistant moved to Python 3.14 with that release, and this version uses it.
-2. **A user who is not an administrator calls ```execute```**, from a dashboard button, the developer tools or the API. That call is refused now. Move the write into an automation and let the dashboard trigger it; see [Who may call what](#who-may-call-what). ```query``` is not restricted.
-3. **You still have a ```mysql_query:``` section in ```configuration.yaml```.** Connections are set up in the UI only now. A connection that was imported from that section earlier is a normal connection already and keeps working; Home Assistant reports the section as unsupported, so remove it. A connection that exists only in YAML is not imported any more: add it in the UI.
-4. **A dashboard button or an API call puts a template in ```values``` directly.** That template is stored as text now instead of being rendered. Up to 3.x the integration rendered the values a second time, which let text that came out of a template, such as a sensor state that reads ```{{ ... }}```, run as a template of its own. Let the button run a script that makes the call: Home Assistant renders the template there, with the same data types as before. If the call is ```execute``` and the user is not an administrator, see (2). See also [Templates keep their data type](#templates-keep-their-data-type).
-5. **You send a write through ```query```.** A ```WITH ... UPDATE``` or ```WITH ... DELETE``` (MySQL 8) and a ```SELECT ... INTO OUTFILE``` used to pass as reading; they are refused there now and belong to ```execute```.
-
-**Good to know:**
-
-- **Some settings moved.** Changing where a connection connects (host, port, credentials, database, charset, collation, TLS) is now **Reconfigure**, in the menu of the connection. The query timeout, the row limit, autocommit and the read-only switch stay under **Configure**.
-- **Going back to 3.x means re-creating the connections.** The conversion is one way, and 3.x would not find its settings where it looks for them. Home Assistant refuses to load a converted connection in 3.x instead of running it with the wrong settings; remove it and add it again to downgrade. Make a backup before you update if you may want to go back.
-- **Every statement through ```query``` runs in a read-only transaction** now, see [How reading is held to reading](#how-reading-is-held-to-reading).
-
-Smaller things: ```execute``` no longer needs a ```response_variable``` (a write without one stops the automation when it fails); the actions stay listed while no connection is loaded and then say why a call cannot run; a connection whose database is not up yet when Home Assistant starts is retried by itself; refused credentials start a sign-in form instead of leaving the connection failed; and the password field is masked and never shown again.
-
----
-
-## Upgrading to 3.0.0
-
-**This release splits reading and writing across the two services.** Before 3.0.0 both services ran anything, and they differed only in what they returned. That meant a service called ```query``` would happily run a ```DELETE```, which is exactly the sort of accident a name should prevent.
-
-From 3.0.0 on, ```mysql_query.query``` runs only statements that read, and ```mysql_query.execute``` runs only statements that change something. Reach for the wrong one and the error tells you which one to use.
-
-The dividing line is read-only versus read/write, not the word ```SELECT```. The [Services](#services) section lists exactly what each one accepts.
-
-**If you use ```query``` for writes**, change the service name to ```mysql_query.execute```. Nothing else changes: the fields ```query```, ```values```, ```db4query``` and ```config_entry``` are identical, and the rows are still under ```result```. One thing to know: ```query``` stops your automation when a statement fails, while ```execute``` reports the failure in its response as ```succeeded: false```. If you were relying on the automation stopping, add ```raise_on_error: true``` to the call.
-
-Both services accept ```raise_on_error```; only the default differs, so a call that does not mention it behaves the way that service always did. ```query``` defaults to ```true``` and ```execute``` to ```false```, and either can be told to do the other.
-
-```yaml
-# Before (2.x)
-action: mysql_query.query
-data:
-  query: DELETE FROM readings WHERE logged_at < %s
-  values: ["{{ (now() - timedelta(days=30)).isoformat() }}"]
-
-# After (3.0.0)
-action: mysql_query.execute
-data:
-  query: DELETE FROM readings WHERE logged_at < %s
-  values: ["{{ (now() - timedelta(days=30)).isoformat() }}"]
-  raise_on_error: true   # only if you relied on query aborting on failure
-```
-
-**If you use ```execute``` for reads**, change the service name to ```mysql_query.query```. You lose nothing: ```query``` now returns ```succeeded```, ```rows_found```, ```column_names``` and ```execution_time_ms``` alongside ```result```, which are the fields that made ```execute``` worth using for a ```SELECT```.
-
-**If you only read through ```query``` and write through ```execute```**, you are already done; nothing changes for you.
-
-Two further changes apply to both services: a call may now carry only one statement, and the guard has limits worth knowing. Both are described under [Services](#services).
+Coming from an older version, or looking for the smaller changes? The [changelog](CHANGELOG.md) has the migration steps per version.
 
 ---
 
@@ -671,7 +623,7 @@ Two integrations, two different jobs. They can be installed side by side.
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for a full list of changes per version.
+See [CHANGELOG.md](CHANGELOG.md) for a full list of changes per version, including the migration steps of older releases, and the [GitHub releases](https://github.com/IAsDoubleYou/homeassistant-mysql_query/releases) for the release notes.
 
 ## Support
 
