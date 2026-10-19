@@ -5,6 +5,7 @@
 [![GitHub Downloads (latest Release)][downloads_latest_shield]][latest_release]
 [![GitHub All Releases][downloads_total_shield]][releases]
 [![Community Forum][community_forum_shield]][community_forum]
+[![GitHub Stars](https://img.shields.io/github/stars/IAsDoubleYou/homeassistant-mysql_query?style=social)](https://github.com/IAsDoubleYou/homeassistant-mysql_query/stargazers)
 
 > **Looking for continuous sensors instead of actions you trigger on demand?** See [HA MySQL](https://github.com/IAsDoubleYou/ha_mysql), a sibling integration built for that — full comparison at the [bottom of this README](#ha-mysql-or-mysql-query).
 
@@ -671,6 +672,10 @@ Two integrations, two different jobs. They can be installed side by side.
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for a full list of changes per version.
+
+## Support
+
+If you enjoy using this integration, please consider giving it a ⭐ on [GitHub](https://github.com/IAsDoubleYou/homeassistant-mysql_query)! It costs nothing, shows your appreciation, and helps other Home Assistant users find this integration more easily.
 
 [hacs_shield]: https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=flat-square
 [hacs]: https://github.com/hacs/integration
