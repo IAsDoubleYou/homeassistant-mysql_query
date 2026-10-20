@@ -20,9 +20,9 @@
                     "mysql_readonly": "Alleen-lezen verbinding"
                 },
                 "data_description": {
-                    "mysql_query_timeout": "Begrenst een hele aanroep: het lenen van een pool-connectie, deze zo nodig opnieuw verbinden, en het statement zelf uitvoeren. Een statement dat dan nog loopt wordt als mislukt behandeld en de connectie wordt weggegooid in plaats van hergebruikt.",
+                    "mysql_query_timeout": "Stelt de maximale tijdsduur in voor de gehele database-aanroep. Als een query deze limiet overschrijdt, wordt de actie geannuleerd en de verbinding hersteld.",
                     "mysql_use_tls": "Versleutelt het verkeer naar de database. De server moet TLS geconfigureerd hebben; zonder TLS mislukt de verbinding. Het servercertificaat wordt niet gecontroleerd, dus dit beschermt tegen meelezen op het netwerk, niet tegen een server die zich voordoet als de jouwe. Standaard uit, zodat bestaande installaties blijven werken.",
-                    "mysql_readonly": "Weigert de Uitvoeren-actie op deze verbinding, wat het statement ook zegt. Gebruik dit voor een verbinding die alleen dashboards of rapportages voedt, zodat een schrijfactie die op de verkeerde verbinding terechtkomt hier niet landt. Standaard uit."
+                    "mysql_readonly": "Voorkomt dat er schrijfopdrachten op deze verbinding worden uitgevoerd. Handig om verbindingen voor dashboards en rapportages te beschermen tegen onbedoelde aanpassingen."
                 }
             },
             "reconfigure": {
@@ -78,8 +78,8 @@
                     "mysql_readonly": "Alleen-lezen verbinding"
                 },
                 "data_description": {
-                    "mysql_query_timeout": "Begrenst een hele aanroep: het lenen van een pool-connectie, deze zo nodig opnieuw verbinden, en het statement zelf uitvoeren. Een statement dat dan nog loopt wordt als mislukt behandeld en de connectie wordt weggegooid in plaats van hergebruikt.",
-                    "mysql_readonly": "Weigert de Uitvoeren-actie op deze verbinding, wat het statement ook zegt. Gebruik dit voor een verbinding die alleen dashboards of rapportages voedt, zodat een schrijfactie die op de verkeerde verbinding terechtkomt hier niet landt. Standaard uit."
+                    "mysql_query_timeout": "Stelt de maximale tijdsduur in voor de gehele database-aanroep. Als een query deze limiet overschrijdt, wordt de actie geannuleerd en de verbinding hersteld.",
+                    "mysql_readonly": "Voorkomt dat er schrijfopdrachten op deze verbinding worden uitgevoerd. Handig om verbindingen voor dashboards en rapportages te beschermen tegen onbedoelde aanpassingen."
                 }
             }
         }
