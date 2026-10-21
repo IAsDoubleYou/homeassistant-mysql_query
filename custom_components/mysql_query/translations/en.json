@@ -20,9 +20,9 @@
                     "mysql_readonly": "Read-only connection"
                 },
                 "data_description": {
-                    "mysql_query_timeout": "Bounds a whole call: borrowing a pooled connection, reconnecting it if needed, and running the statement. A statement still running when this elapses is treated as failed and its connection is dropped instead of reused.",
+                    "mysql_query_timeout": "Sets the maximum duration for the entire database operation. If a query exceeds this limit, the action is cancelled and the connection is rebuilt.",
                     "mysql_use_tls": "Encrypts the traffic to the database. The server must have TLS configured; the connection fails if it does not. The server certificate is not verified, so this protects against reading along on the network, not against a server impersonating yours. Off by default so existing setups keep working.",
-                    "mysql_readonly": "Refuses the Execute action on this connection, whatever the statement says. Use it for a connection that only feeds dashboards or reports, so a write aimed at the wrong connection cannot land here. Off by default."
+                    "mysql_readonly": "Prevents write operations from being executed on this connection. Useful to protect connections used only for dashboards and reports against accidental modifications."
                 }
             },
             "reconfigure": {
@@ -78,8 +78,8 @@
                     "mysql_readonly": "Read-only connection"
                 },
                 "data_description": {
-                    "mysql_query_timeout": "Bounds a whole call: borrowing a pooled connection, reconnecting it if needed, and running the statement. A statement still running when this elapses is treated as failed and its connection is dropped instead of reused.",
-                    "mysql_readonly": "Refuses the Execute action on this connection, whatever the statement says. Use it for a connection that only feeds dashboards or reports, so a write aimed at the wrong connection cannot land here. Off by default."
+                    "mysql_query_timeout": "Sets the maximum duration for the entire database operation. If a query exceeds this limit, the action is cancelled and the connection is rebuilt.",
+                    "mysql_readonly": "Prevents write operations from being executed on this connection. Useful to protect connections used only for dashboards and reports against accidental modifications."
                 }
             }
         }

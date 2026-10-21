@@ -20,7 +20,7 @@
                     "mysql_readonly": "Alleen-lezen verbinding"
                 },
                 "data_description": {
-                    "mysql_query_timeout": "Stelt de maximale tijdsduur in voor de gehele database-aanroep. Als een query deze limiet overschrijdt, wordt de actie geannuleerd en de verbinding hersteld.",
+                    "mysql_query_timeout": "Stelt de maximale tijdsduur in voor de gehele database-aanroep. Als een query deze limiet overschrijdt, wordt de actie geannuleerd en de verbinding opnieuw opgebouwd.",
                     "mysql_use_tls": "Versleutelt het verkeer naar de database. De server moet TLS geconfigureerd hebben; zonder TLS mislukt de verbinding. Het servercertificaat wordt niet gecontroleerd, dus dit beschermt tegen meelezen op het netwerk, niet tegen een server die zich voordoet als de jouwe. Standaard uit, zodat bestaande installaties blijven werken.",
                     "mysql_readonly": "Voorkomt dat er schrijfopdrachten op deze verbinding worden uitgevoerd. Handig om verbindingen voor dashboards en rapportages te beschermen tegen onbedoelde aanpassingen."
                 }
@@ -78,7 +78,7 @@
                     "mysql_readonly": "Alleen-lezen verbinding"
                 },
                 "data_description": {
-                    "mysql_query_timeout": "Stelt de maximale tijdsduur in voor de gehele database-aanroep. Als een query deze limiet overschrijdt, wordt de actie geannuleerd en de verbinding hersteld.",
+                    "mysql_query_timeout": "Stelt de maximale tijdsduur in voor de gehele database-aanroep. Als een query deze limiet overschrijdt, wordt de actie geannuleerd en de verbinding opnieuw opgebouwd.",
                     "mysql_readonly": "Voorkomt dat er schrijfopdrachten op deze verbinding worden uitgevoerd. Handig om verbindingen voor dashboards en rapportages te beschermen tegen onbedoelde aanpassingen."
                 }
             }
