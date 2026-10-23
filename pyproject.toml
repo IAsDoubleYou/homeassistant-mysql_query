@@ -72,3 +72,15 @@ split-on-trailing-comma = false
 
 [tool.ruff.lint.pydocstyle]
 convention = "pep257"
+
+[tool.mypy]
+python_version = "3.14"
+files = ["custom_components"]
+strict = true
+warn_unreachable = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+# aiomysql ships no type information.
+module = ["aiomysql", "aiomysql.*"]
+ignore_missing_imports = true

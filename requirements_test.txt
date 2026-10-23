@@ -1,2 +1,4 @@
 aiomysql==0.3.2
 pytest-homeassistant-custom-component
+mypy
+types-PyMySQL
