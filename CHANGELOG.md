@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.0] - 2026-10-24
+
+The integration moves to the validation library Home Assistant itself switched to, and the code is now fully type checked. Nothing changes for a connection, an automation or a script.
+
+### Changed
+
+- **Home Assistant 2026.9.0 or newer is now required**, declared in `hacs.json` (previously 2026.3.0). Home Assistant replaced voluptuous with probatio in that release, and the forms and actions of this integration now use probatio directly. HACS keeps a Home Assistant older than 2026.9.0 on version 4.0.1.
+- The whole integration passes `mypy --strict`, and ships a `py.typed` marker. This is checked in CI from now on.
+
 ## [4.0.1] - 2026-10-18
 
 A clean-up release. Nothing changes for automations, scripts or dashboards; two messages are clearer.
