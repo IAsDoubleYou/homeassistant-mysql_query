@@ -230,7 +230,9 @@ def _async_get_instance(hass: HomeAssistant, entry_id: str | None) -> MySQLInsta
     The services stay registered while no connection is loaded, so they can
     say why a call cannot run instead of vanishing from the action list.
     """
-    entries = hass.config_entries.async_loaded_entries(DOMAIN)
+    entries: list[MySQLQueryConfigEntry] = hass.config_entries.async_loaded_entries(
+        DOMAIN
+    )
 
     if entry_id:
         for entry in entries:

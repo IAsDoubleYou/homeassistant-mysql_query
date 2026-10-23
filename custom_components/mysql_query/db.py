@@ -227,7 +227,7 @@ def error_details(err: BaseException) -> tuple[int | None, str]:
     in ``args`` for server-side errors and a single message for client-side
     ones such as a refused connection.
     """
-    args = getattr(err, "args", ())
+    args: tuple[Any, ...] = err.args
     if len(args) >= _ERRNO_MESSAGE_ARGS and isinstance(args[0], int):
         return args[0], str(args[1])
     if len(args) == 1:

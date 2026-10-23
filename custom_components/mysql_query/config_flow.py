@@ -124,10 +124,10 @@ def _whole_number(minimum: int, maximum: int | None = None) -> NumberSelector:
     """
     # Left out rather than set to None when there is no upper bound: the
     # selector rejects a max that is present but empty.
-    bounds = {"min": minimum} | ({"max": maximum} if maximum is not None else {})
-    return NumberSelector(
-        NumberSelectorConfig(**bounds, step=1, mode=NumberSelectorMode.BOX)
-    )
+    config = NumberSelectorConfig(min=minimum, step=1, mode=NumberSelectorMode.BOX)
+    if maximum is not None:
+        config["max"] = maximum
+    return NumberSelector(config)
 
 
 PORT_SELECTOR = _whole_number(1, 65535)
