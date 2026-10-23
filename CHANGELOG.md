@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.0] - 2026-10-24
+
+Diagnostics for the connection. Nothing changes for a connection, an automation or a script.
+
+### Added
+
+- **Download diagnostics** from the menu of the connection. The file holds the settings of the connection, the size of the connection pool and the state of the entry. The host, port, username, password and database name are masked, and so are the title and the unique ID of the connection. The integration keeps no statements and no rows, so none are included.
+
 ## [4.1.0] - 2026-10-24
 
 The integration moves to the validation library Home Assistant itself switched to, and the code is now fully type checked. Nothing changes for a connection, an automation or a script.

@@ -340,6 +340,12 @@ Refusals to run always raise, on both services, as a validation error: no connec
 
 ---
 
+## Diagnostics
+
+When you report a problem, download the diagnostics of the connection: **Settings** > **Devices & services** > **MySQL Query** > the **⋮** menu of the connection > **Download diagnostics**. The file holds the settings of the connection, the size of the connection pool and the state of the entry.
+
+The host, port, username, password and database name are masked, and so are the title and the unique ID of the connection, which are built from them. The integration keeps no statements and no rows, so none are included.
+
 ## Breaking changes in v4.0
 
 Updating from 3.x needs no changes for most setups: connections are converted automatically and ```query``` calls keep working for every user. Check these four:
