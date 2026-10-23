@@ -8,9 +8,9 @@ import logging
 from unittest.mock import AsyncMock, patch
 
 from aiomysql import Error as MySQLError
+import probatio
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
@@ -51,7 +51,7 @@ def _form_defaults(result: dict) -> dict:
     return {
         key.schema: key.default()
         for key in result["data_schema"].schema
-        if key.default is not vol.UNDEFINED
+        if key.default is not probatio.UNDEFINED
     }
 
 
@@ -506,7 +506,7 @@ async def test_reauth_flow_does_not_prefill_the_password(hass: HomeAssistant) ->
 
     schema = result["data_schema"].schema
     password_key = next(k for k in schema if k == CONF_MYSQL_PASSWORD)
-    assert password_key.default is vol.UNDEFINED
+    assert password_key.default is probatio.UNDEFINED
     username_key = next(k for k in schema if k == CONF_MYSQL_USERNAME)
     assert username_key.default() == "test_user"
 

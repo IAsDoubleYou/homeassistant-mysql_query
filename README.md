@@ -27,9 +27,11 @@ A Home Assistant custom component that talks to a MySQL or MariaDB database thro
 
 ## Requirements
 
-- Home Assistant 2026.3.0 or newer (it runs on Python 3.14, which this integration uses). HACS will not install it on anything older.
+- Home Assistant 2026.9.0 or newer (it validates with probatio, which Home Assistant uses since that release). HACS will not install it on anything older.
 - MySQL 5.6.5 or newer, or MariaDB 10.0 or newer: ```query``` relies on read-only transactions.
 - The ```aiomysql``` driver, which Home Assistant installs automatically.
+
+Note: This integration closely follows the latest Home Assistant releases. Keeping Home Assistant up-to-date is recommended to receive the newest updates and features of this component.
 
 ## Installation
 

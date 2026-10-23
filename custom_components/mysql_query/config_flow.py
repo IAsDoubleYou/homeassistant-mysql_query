@@ -7,7 +7,7 @@ import logging
 from typing import Any
 
 from aiomysql import Error
-import voluptuous as vol
+import probatio
 
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
@@ -166,7 +166,7 @@ def keep_stored_password(
 
 def get_connection_schema(
     defaults: Mapping[str, Any], *, editing: bool = False
-) -> vol.Schema:
+) -> probatio.Schema:
     """Return the schema of the settings that decide where and how to connect.
 
     These live in the config entry data and are changed through reconfigure.
@@ -174,61 +174,63 @@ def get_connection_schema(
     and stays when the field is left empty.
     """
     password_field = (
-        vol.Optional(CONF_MYSQL_PASSWORD, default="")
+        probatio.Optional(CONF_MYSQL_PASSWORD, default="")
         if editing
-        else vol.Required(CONF_MYSQL_PASSWORD)
+        else probatio.Required(CONF_MYSQL_PASSWORD)
     )
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Required(
+            probatio.Required(
                 CONF_MYSQL_HOST, default=defaults.get(CONF_MYSQL_HOST, "")
             ): str,
-            vol.Required(
+            probatio.Required(
                 CONF_MYSQL_PORT,
                 default=defaults.get(CONF_MYSQL_PORT, DEFAULT_MYSQL_PORT),
             ): PORT_SELECTOR,
-            vol.Required(
+            probatio.Required(
                 CONF_MYSQL_USERNAME, default=defaults.get(CONF_MYSQL_USERNAME, "")
             ): str,
             password_field: PASSWORD_SELECTOR,
-            vol.Required(CONF_MYSQL_DB, default=defaults.get(CONF_MYSQL_DB, "")): str,
-            vol.Optional(
+            probatio.Required(
+                CONF_MYSQL_DB, default=defaults.get(CONF_MYSQL_DB, "")
+            ): str,
+            probatio.Optional(
                 CONF_MYSQL_TIMEOUT,
                 default=defaults.get(CONF_MYSQL_TIMEOUT, DEFAULT_MYSQL_TIMEOUT),
             ): SECONDS_SELECTOR,
-            vol.Optional(
+            probatio.Optional(
                 CONF_MYSQL_CHARSET, default=defaults.get(CONF_MYSQL_CHARSET, "")
             ): str,
-            vol.Optional(
+            probatio.Optional(
                 CONF_MYSQL_COLLATION, default=defaults.get(CONF_MYSQL_COLLATION, "")
             ): str,
-            vol.Optional(
+            probatio.Optional(
                 CONF_USE_TLS, default=defaults.get(CONF_USE_TLS, DEFAULT_USE_TLS)
             ): bool,
         }
     )
 
 
-def get_options_schema(defaults: Mapping[str, Any]) -> vol.Schema:
+def get_options_schema(defaults: Mapping[str, Any]) -> probatio.Schema:
     """Return the schema of the settings that only decide how queries behave.
 
     These live in the config entry options. Changing one does not touch the
     identity of the connection, so it never needs the connection to be tried.
     """
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Optional(
+            probatio.Optional(
                 CONF_QUERY_TIMEOUT,
                 default=defaults.get(CONF_QUERY_TIMEOUT, DEFAULT_QUERY_TIMEOUT),
             ): SECONDS_SELECTOR,
-            vol.Optional(
+            probatio.Optional(
                 CONF_ROW_LIMIT, default=defaults.get(CONF_ROW_LIMIT, DEFAULT_ROW_LIMIT)
             ): ROW_LIMIT_SELECTOR,
-            vol.Optional(
+            probatio.Optional(
                 CONF_AUTOCOMMIT,
                 default=defaults.get(CONF_AUTOCOMMIT, DEFAULT_MYSQL_AUTOCOMMIT),
             ): bool,
-            vol.Optional(
+            probatio.Optional(
                 CONF_READONLY_CONNECTION,
                 default=defaults.get(
                     CONF_READONLY_CONNECTION, DEFAULT_READONLY_CONNECTION
@@ -238,7 +240,7 @@ def get_options_schema(defaults: Mapping[str, Any]) -> vol.Schema:
     )
 
 
-def get_schema(defaults: Mapping[str, Any]) -> vol.Schema:
+def get_schema(defaults: Mapping[str, Any]) -> probatio.Schema:
     """Return the setup schema: the connection and the query behaviour together."""
     return get_connection_schema(defaults).extend(get_options_schema(defaults).schema)
 
@@ -373,13 +375,13 @@ class MySQLQueryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         current = user_input or entry.data
         return self.async_show_form(
             step_id="reauth_confirm",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(
+                    probatio.Required(
                         CONF_MYSQL_USERNAME,
                         default=current.get(CONF_MYSQL_USERNAME, ""),
                     ): str,
-                    vol.Required(CONF_MYSQL_PASSWORD): PASSWORD_SELECTOR,
+                    probatio.Required(CONF_MYSQL_PASSWORD): PASSWORD_SELECTOR,
                 }
             ),
             errors=errors,

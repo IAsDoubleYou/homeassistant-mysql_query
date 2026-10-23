@@ -7,9 +7,9 @@ import re
 from unittest.mock import AsyncMock, patch
 
 from aiomysql import Error as MySQLError
+import probatio
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-import voluptuous as vol
 
 from homeassistant.auth.models import User
 from homeassistant.config_entries import ConfigEntryState
@@ -437,7 +437,7 @@ async def test_execute_service_rejects_non_scalar_values(hass: HomeAssistant) ->
     """Only scalars can be bound to a placeholder, so the schema refuses more."""
     await _setup_entry(hass, FakePool(FakeConnection(_select_cursor([], ["id"]))))
 
-    with pytest.raises(vol.Invalid):
+    with pytest.raises(probatio.Invalid):
         await hass.services.async_call(
             DOMAIN,
             SERVICE_EXECUTE,

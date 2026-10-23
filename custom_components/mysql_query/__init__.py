@@ -14,7 +14,7 @@ import time
 from typing import Any, Final, TypedDict
 
 import aiomysql
-import voluptuous as vol
+import probatio
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import (
@@ -74,27 +74,27 @@ _LOGGER = logging.getLogger(__name__)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-QUERY_SCHEMA: Final = vol.Schema(
+QUERY_SCHEMA: Final = probatio.Schema(
     {
-        vol.Required(ATTR_QUERY): cv.string,
+        probatio.Required(ATTR_QUERY): cv.string,
         # Values bound to the %s placeholders of a parameterized query. Only
         # scalars are accepted: those are the types MySQL can bind to a single
         # placeholder. See bind_values for why templates are not rendered here.
-        vol.Optional(ATTR_VALUES): vol.All(
-            cv.ensure_list, [vol.Any(None, bool, int, float, str)]
+        probatio.Optional(ATTR_VALUES): probatio.All(
+            cv.ensure_list, [probatio.Any(None, bool, int, float, str)]
         ),
-        vol.Optional(ATTR_DB4QUERY): cv.string,
-        vol.Optional(ATTR_CONFIG_ENTRY): cv.string,
+        probatio.Optional(ATTR_DB4QUERY): cv.string,
+        probatio.Optional(ATTR_CONFIG_ENTRY): cv.string,
         # Both services take this switch; only the default differs, so each
         # keeps the behaviour it always had unless the call says otherwise.
-        vol.Optional(ATTR_RAISE_ON_ERROR, default=True): cv.boolean,
+        probatio.Optional(ATTR_RAISE_ON_ERROR, default=True): cv.boolean,
     }
 )
 
 # No default here: for execute it depends on whether the call asks for the
 # response, which only _raises_on_error can see.
 EXECUTE_SCHEMA: Final = QUERY_SCHEMA.extend(
-    {vol.Optional(ATTR_RAISE_ON_ERROR): cv.boolean}
+    {probatio.Optional(ATTR_RAISE_ON_ERROR): cv.boolean}
 )
 
 

@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 from typing import get_args
 
-import voluptuous as vol
+import probatio
 import yaml
 
 from custom_components.mysql_query.__init__ import EXECUTE_SCHEMA, QUERY_SCHEMA
@@ -100,11 +100,11 @@ def test_service_fields_match_the_schema_one_to_one() -> None:
         assert set(fields) == set(keys)
         for name, field in fields.items():
             key = keys[name]
-            assert field.get("required", False) is isinstance(key, vol.Required), (
+            assert field.get("required", False) is isinstance(key, probatio.Required), (
                 service,
                 name,
             )
-            if key.default is vol.UNDEFINED:
+            if key.default is probatio.UNDEFINED:
                 assert "default" not in field, (service, name)
             else:
                 assert field["default"] == key.default(), (service, name)
