@@ -15,7 +15,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: "actions/checkout@v5"
+      - uses: "actions/checkout@v7"
       - name: Build homeassistant-mysql_query.zip
         # Zipped from inside the component directory, so the archive holds
         # manifest.json and the rest directly at its root. A wrapping
