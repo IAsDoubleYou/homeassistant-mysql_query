@@ -7,11 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [4.2.0] - 2026-10-24
 
-Diagnostics for the connection. Nothing changes for a connection, an automation or a script.
+Diagnostics for the connection, and HACS installs the integration file by file for now. Nothing changes for a connection, an automation or a script.
 
 ### Added
 
 - **Download diagnostics** from the menu of the connection. The file holds the settings of the connection, the size of the connection pool and the state of the entry. The host, port, username, password and database name are masked, and so are the title and the unique ID of the connection. The integration keeps no statements and no rows, so none are included.
+
+### Changed
+
+- **HACS no longer installs from the release zip, for now.** GitHub currently answers release downloads with a redirect whose headers are too large for the HTTP client of Home Assistant, so HACS fails with `Got more than 8190 bytes when reading` for every integration that installs from a release zip (see [hacs/integration#5643](https://github.com/hacs/integration/issues/5643)). `zip_release` and `filename` are therefore removed from `hacs.json`, and HACS fetches the files of `custom_components/mysql_query/` one by one instead. The zip is still attached to every release for a manual install. Both keys can return once the problem is solved.
 
 ## [4.1.0] - 2026-10-24
 

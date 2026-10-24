@@ -2,8 +2,9 @@ name: Attach the release zip
 
 # Runs when a release is published, whether that happens through the web UI
 # after tagging or through the API. Tagging and publishing stay a manual,
-# human decision; this only builds and attaches the asset that HACS installs
-# from (hacs.json sets zip_release) and that the downloads badge counts.
+# human decision; this only builds and attaches the zip for manual installs
+# and for the downloads badge. hacs.json does not set zip_release for now, so
+# HACS installs file by file (see the 4.2.0 entry of the changelog).
 on:
   release:
     types: [published]

@@ -1,7 +1,5 @@
 {
   "name": "MySQL Query Service",
   "homeassistant": "2026.9.0",
-  "render_readme": true,
-  "zip_release": true,
-  "filename": "homeassistant-mysql_query.zip"
+  "render_readme": true
 }
