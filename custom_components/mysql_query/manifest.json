@@ -1,6 +1,7 @@
 {
   "domain": "mysql_query",
   "name": "MySQL Query Service",
+  "categories": ["diy_makers.web_data_connectors"],
   "codeowners": [
     "@IAsDoubleYou"
   ],
