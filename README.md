@@ -35,7 +35,11 @@ Note: This integration closely follows the latest Home Assistant releases. Keepi
 
 ## Installation
 
-### Using HACS (recommended)
+### Using the Marketplace (recommended, Home Assistant 2026.11 and newer)
+
+Since Home Assistant 2026.11, HACS is built in as the Marketplace under **Settings > Marketplace**. Search for "MySQL Query", open **MySQL Query Service** and select **Install**: you land straight in the setup, no restart needed.
+
+### Using HACS (Home Assistant 2026.10 and older)
 
 Open HACS, search for "MySQL Query", open **MySQL Query Service**, select **Download** and restart Home Assistant.
 
