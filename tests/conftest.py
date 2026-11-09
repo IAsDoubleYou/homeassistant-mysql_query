@@ -8,8 +8,7 @@ import sys
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
-import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.mysql_query.const import (
     DOMAIN,
@@ -25,10 +24,8 @@ from custom_components.mysql_query.const import (
 # pytest's setuptools-entrypoint plugin autoloading (which triggers that
 # import) runs before any conftest.py, so this can't be done from here.
 
-pytest_plugins = "pytest_homeassistant_custom_component"
-
 if sys.platform == "win32":
-    # pytest_socket (enabled by pytest_homeassistant_custom_component) blocks
+    # pytest_socket (enabled by pytest_homeassistant) blocks
     # socket.socket while allowing AF_UNIX. asyncio's self-pipe uses
     # socket.socketpair(), which is a real AF_UNIX pair on POSIX but falls back
     # to a loopback TCP pair on Windows - so creating any event loop is blocked
@@ -47,11 +44,6 @@ if sys.platform == "win32":
             socket.socket = guarded  # type: ignore[misc]
 
     socket.socketpair = _unguarded_socketpair  # type: ignore[assignment]
-
-
-@pytest.fixture(autouse=True)
-def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
-    """Enable loading of custom_components/mysql_query for every test."""
 
 
 class FakeCursor:
